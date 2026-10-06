@@ -132,6 +132,7 @@ class State(BaseModel):
 
     # Resolution and handled case
     resolved_case_id: str | None = None
+    last_resolution: str | None = None  # unique | ambiguous | no_match | no_claims
     case_record: CaseRecord = Field(default_factory=CaseRecord)
 
     # Emotion, scope and escalation counters
@@ -140,6 +141,7 @@ class State(BaseModel):
     refusal_count: int = 0
     frustration_streak: int = 0
     oos_strikes: int = 0
+    oos_clear_turns: int = 0  # consecutive in-scope turns; two of them clear the strikes
     case_loops: int = 0
     doc_unavailable: set[str] = set()
     human_offered: bool = False
