@@ -84,6 +84,7 @@ def _select_facts(context: CaseContext, intents: Sequence[str], question: str):
     for intent in intents or ("general_claim_question",):
         wanted += _BY_INTENT.get(intent, _BY_INTENT["general_claim_question"])
     wanted.append("followup.")  # matched follow-up rules are direct answers: always included
+    wanted.append("policy.")  # the human-review rule, present only when it applies
     if _PAYMENT_WORDS.search(question):
         wanted.append("amount.")
 

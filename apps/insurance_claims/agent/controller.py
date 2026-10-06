@@ -28,10 +28,11 @@ from .consent import ConsentGateway
 from .context import build_case_context
 from .fixtures import Case, FixtureStore
 from .guard import find_violations
+from .guidance import match_document_key
 from .llm.client import LLMClient
 from .memory import MemoryUpdate, apply_understanding
 from .prepass import redact
-from .process import ProcessAnswer, generate_answer, tone_note
+from .process import ProcessAnswer, facts_only_answer, generate_answer, tone_note
 from .render import render_reply
 from .resolve import case_option, has_hints, resolve_case
 from .state import CaseHints, CaseRecord, Phase, State, Turn
@@ -70,6 +71,24 @@ _SWITCH_PHRASES = re.compile(
 def _mentions(message: str, case_id: str) -> bool:
     pattern = rf"(?<![A-Za-z0-9]){re.escape(case_id)}(?![A-Za-z0-9])"
     return re.search(pattern, message, re.IGNORECASE) is not None
+
+
+# Used only when the LLM is down: "I can't get the document" needs both patterns to match.
+_CANNOT_GET = re.compile(
+    r"\b(?:can'?t|cannot|can not|couldn'?t|unable to|don'?t have|do not have|didn'?t get"
+    r"|never received|lost|no way to)\b",
+    re.IGNORECASE,
+)
+_DOC_WORDS = re.compile(
+    r"\b(?:documents?|paperwork|records?|reports?|notes?|files?|cop(?:y|ies)"
+    r"|it|them|those|these)\b",
+    re.IGNORECASE,
+)
+# Names that mean "the documents in question" rather than a specific document.
+_GENERIC_DOC_WORDS = frozenset(
+    "it them those these that document documents paperwork record records file files copy "
+    "copies anything everything the a my any".split()
+)
 
 
 @dataclass(frozen=True)
@@ -410,6 +429,11 @@ class SopAgent:
         if u.user_done and not asking:
             return _Outcome([act(ActKind.GOODBYE)])
 
+        # A request the agent cannot perform (for example filing an appeal) is declined in plain
+        # words, with what is on file and a human offer.
+        if u.requests_action:
+            return self._unsupported_action(ctx, case)
+
         # A request about another claim goes back to resolution (switches happen at most once
         # per turn, and the number of them per conversation is capped).
         if ctx.start_phase == Phase.PROCESS_CASE and not ctx.switched:
@@ -418,7 +442,14 @@ class SopAgent:
                 return self._switch_claim(ctx, target)
         just_arrived = ctx.start_phase != Phase.PROCESS_CASE or ctx.switched
 
+        unavailable, ask_which = self._unavailable_documents(ctx, case)
+        if ask_which:
+            return _Outcome([act(ActKind.ASK_WHICH_DOCUMENT, options=list(case.documents_needed))])
+        exhausted = any(doc in state.doc_unavailable for doc in unavailable)
+
         intents = list(u.intents)
+        if unavailable and not intents:
+            intents = ["document_submission"]
         shown = redact(ctx.message, self._policy_prefixes)
         question: str | None = shown  # also used to match the follow-up rules
         if intents or u.followup_topics:
@@ -442,6 +473,8 @@ class SopAgent:
             question=question,
             intents=intents,
             topics=u.followup_topics,
+            unavailable_docs=unavailable,
+            include_human_review=exhausted,
         )
         answer = await generate_answer(
             self._llm,
@@ -454,17 +487,97 @@ class SopAgent:
             tone=tone_note(state.emotion, state.severity),
         )
         self._record_answer(state, case, intents, context.followup_topics, answer)
+        state.doc_unavailable.update(unavailable)
         state.intent_hint = None  # the remembered request has now been answered
+        acts = [
+            act(
+                ActKind.ANSWER_FROM_FACTS,
+                reply=answer.reply,
+                facts_used=list(answer.facts_used),
+                source=answer.source,
+                fallback_reason=answer.fallback_reason,
+            )
+        ]
+        # A second "I can't get it" for the same document means the guideline's alternatives
+        # are used up, so a human reviews the file instead of another closing question.
+        if exhausted:
+            acts.append(self._offer_human(state, "documents_unavailable"))
+        else:
+            acts.append(act(ActKind.ASK_ANYTHING_ELSE))
+        return _Outcome(acts)
+
+    def _unavailable_documents(self, ctx: _Ctx, case: Case) -> tuple[list[str], bool]:
+        """Which of this claim's requested documents the caller says they cannot get.
+
+        Returns (documents, ask_which). With several requested documents and no way to tell
+        which one is meant, the answer is to ask. A document the claim never requested is
+        ignored. When the LLM is up its extraction is trusted; when it is down, a phrase
+        like "I can't get it" together with a document word is the evidence."""
+        u, message = ctx.u, ctx.message
+        requested = list(case.documents_needed)
+        if not requested:
+            return [], False
+        low = message.casefold()
+        mentioned = [d for d in requested if d.casefold() in low]
+
+        if u.llm_used:
+            if not u.cannot_obtain_documents:
+                return [], False
+        else:
+            cannot = _CANNOT_GET.search(message) is not None
+            if not (cannot and (_DOC_WORDS.search(message) or mentioned)):
+                return [], False
+
+        named: list[str] = []
+        specific_but_unrequested = False
+        for name in u.cannot_obtain_documents:
+            key = match_document_key(name, requested)
+            if key is not None:
+                if key not in named:
+                    named.append(key)
+            elif not set(re.findall(r"[a-z]+", name.casefold())) <= _GENERIC_DOC_WORDS:
+                specific_but_unrequested = True
+        for doc in mentioned:
+            if doc not in named:
+                named.append(doc)
+        if named:
+            return named, False
+        if specific_but_unrequested:
+            return [], False  # e.g. an insurance card: not something this claim asked for
+        if len(requested) == 1:
+            return requested, False
+        return [], True
+
+    def _unsupported_action(self, ctx: _Ctx, case: Case) -> _Outcome:
+        """Decline a request the agent cannot perform. Fixed wording and facts only: the
+        request's own text is never echoed back, and the reply is grounded by construction."""
+        state = ctx.state
+        context = build_case_context(
+            case,
+            guidelines=self._store.guidelines,
+            claim_schema=self._store.claim_schema,
+            clock=self._clock,
+            intents=["next_steps"],
+        )
+        answer = facts_only_answer(context, ["next_steps"], "", reason="unsupported_action")
+        label = "a request that needs a human representative"
+        if label not in state.case_record.topics_discussed:
+            state.case_record.topics_discussed.append(label)
+        for fact_id in answer.facts_used:
+            if fact_id not in state.case_record.facts_used:
+                state.case_record.facts_used.append(fact_id)
+        state.record("UNSUPPORTED_ACTION", cited=len(answer.facts_used))
         return _Outcome(
             [
+                act(ActKind.UNSUPPORTED_ACTION),
                 act(
                     ActKind.ANSWER_FROM_FACTS,
                     reply=answer.reply,
                     facts_used=list(answer.facts_used),
-                    source=answer.source,
-                    fallback_reason=answer.fallback_reason,
+                    source="facts",
+                    fallback_reason="unsupported_action",
                 ),
-                act(ActKind.ASK_ANYTHING_ELSE),
+                self._offer_human(state, "unsupported_action"),
             ]
         )
 
@@ -504,6 +617,7 @@ class SopAgent:
         state.resolved_case_id = None
         state.last_resolution = None
         state.case_hints = fresh  # the old hints described the old claim
+        state.doc_unavailable.clear()  # those documents belonged to the claim being left
         state.intent_hint = ctx.u.intents[0] if ctx.u.intents else None
         ctx.switched = True
         state.set_phase(Phase.RESOLVE_INTENT, "caller asked about another claim")

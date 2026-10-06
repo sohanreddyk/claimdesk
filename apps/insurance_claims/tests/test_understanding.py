@@ -2,7 +2,7 @@ import pytest
 from agent.llm.client import LLMBadOutput, LLMNotConfigured, LLMTimeout, NotConfiguredClient
 from agent.llm.fake import ScriptedLLM
 from agent.state import Turn
-from agent.understanding import normalize_case_type, understand_turn
+from agent.understanding import _wants_action, normalize_case_type, understand_turn
 
 MARGARET_MSG = (
     "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my "
@@ -251,3 +251,40 @@ def test_case_type_aliases():
     assert normalize_case_type("home") == "home"
     assert normalize_case_type("  ") is None
     assert normalize_case_type(None) is None
+
+
+# ---- requests the agent cannot perform ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Please file an appeal for me", True),
+        ("Can you file an appeal?", True),
+        ("I want to cancel my claim", True),
+        ("I need to update my address", True),
+        ("Could you change my phone number", True),
+        ("How do I file an appeal?", False),
+        ("Where can I submit a dispute?", False),
+        ("What happens if I cancel my claim?", False),
+        ("When is the appeal deadline?", False),
+        ("Why was my claim denied?", False),
+        ("How do I submit the documents?", False),
+    ],
+)
+def test_action_requests_are_told_apart_from_questions_about_the_process(text, expected):
+    assert _wants_action(text) is expected
+
+
+async def test_an_action_request_is_recognized_without_the_llm(settings, make_state):
+    down = NotConfiguredClient()
+    u = await understand_turn(down, settings, make_state(), "Please file an appeal")
+    assert u.requests_action is True
+    how = await understand_turn(down, settings, make_state(), "How do I appeal?")
+    assert how.requests_action is False
+
+
+async def test_the_llm_can_flag_an_action_request_the_phrases_miss(llm, settings, make_state):
+    llm.queue_structured({"requests_action": True})
+    u = await understand(llm, settings, make_state(), "Could you get the money back to me")
+    assert u.requests_action is True

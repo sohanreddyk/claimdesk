@@ -250,6 +250,22 @@ def test_a_question_about_payment_adds_the_amount_facts(make_context):
     ]
 
 
+def test_the_human_review_rule_and_alternatives_are_included_when_they_apply(store, make_context):
+    context = make_context(
+        unavailable_docs=["pathology report"],
+        include_human_review=True,
+        intents=["document_submission"],
+    )
+    answer = facts_only_answer(context, ["document_submission"], "", reason="x")
+    assert "policy.human_review" in answer.facts_used
+    assert "guidance.alt.pathology_report" in answer.facts_used
+    assert "replacement copy" in answer.reply and "human claims representative" in answer.reply
+    result = check_grounding(
+        answer.reply, answer.facts_used, context, store.document_vocabulary()
+    )
+    assert result.ok, result.violations
+
+
 def test_matched_followup_rules_are_always_included(make_context):
     question = "How long does it take once I send it?"
     context = make_context(question=question, intents=["document_submission"])

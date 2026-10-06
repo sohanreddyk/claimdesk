@@ -82,6 +82,9 @@ class LLMExtraction(BaseModel):
     severity: int = Field(default=0, ge=0, le=3)
     scope: Scope = "in_scope"
     wants_human: bool = False
+    requests_action: bool = Field(
+        default=False, description="Asks the agent to DO something to the claim or account"
+    )
     distress_or_emergency: bool = False
     user_done: bool = False
     human_offer_response: Literal["yes", "no", "not_applicable"] = "not_applicable"
@@ -150,6 +153,15 @@ _SPOKEN_YEAR = re.compile(r"\b(?:nineteen|twenty|two thousand)\b")
 _NOT_ID_CONTEXT = re.compile(r"\b(?:phone|cell|mobile|policy|claim|zip)\b", re.IGNORECASE)
 _ID_WORDS = re.compile(r"\bssn\b|social|national|\bid\b", re.IGNORECASE)
 _AFFIRM = re.compile(r"\s*(?:yes|yeah|yep|sure|please|ok|okay)\b", re.IGNORECASE)
+_ACTION_REQUEST = re.compile(
+    r"\b(?:file|submit|start|open|begin|launch)\s+(?:an?\s+|my\s+|the\s+)?"
+    r"(?:appeal|dispute|reconsideration|complaint)\b"
+    r"|\b(?:cancel|withdraw|reopen|delete|close)\s+(?:my\s+|the\s+|this\s+)?claim\b"
+    r"|\b(?:update|change|edit|correct)\s+(?:my\s+)?"
+    r"(?:address|phone number|phone|email|name|contact details|contact information)\b",
+    re.IGNORECASE,
+)
+_QUESTION_WORDS = re.compile(r"\b(?:how|where|when|what|why|which|whether)\b", re.IGNORECASE)
 _HUMAN_REQUEST = re.compile(
     r"(?:speak|talk|connect|transfer|put me)\b[^.?!]{0,40}\b"
     r"(?:human|person|representative|rep|agent|supervisor|manager|someone)\b"
@@ -160,6 +172,16 @@ _HUMAN_REQUEST = re.compile(
 
 def _digits(text: str) -> str:
     return re.sub(r"\D", "", text)
+
+
+def _wants_action(message: str) -> bool:
+    """True for "please file an appeal", false for "how do I file an appeal?". An action word
+    counts only when no question word comes before it in the same sentence."""
+    for match in _ACTION_REQUEST.finditer(message):
+        start = max(message.rfind(mark, 0, match.start()) for mark in ".?!") + 1
+        if not _QUESTION_WORDS.search(message[start : match.start()]):
+            return True
+    return False
 
 
 def _dob_supported(iso: str, written: str) -> bool:
@@ -310,6 +332,7 @@ def _merge(
         alt_email=_llm_email(llm.alt_email, written, dropped, "alt_email"),
         followup_topics=list(dict.fromkeys(t for t in llm.followup_topics if t in topics)),
         wants_human=llm.wants_human or bool(_HUMAN_REQUEST.search(message)),
+        requests_action=llm.requests_action or _wants_action(message),
         accepts_human_offer=human_offered and affirmed,
         id_kind_hint=pre.id_kind_hint if id_last4 else None,
         llm_used=extraction is not None,

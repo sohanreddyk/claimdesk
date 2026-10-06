@@ -62,6 +62,13 @@ _HUMAN_OFFER = {
         "I can only go through a few claims in one conversation, but a human representative can "
         "help with more. Would you like me to connect you?"
     ),
+    "unsupported_action": (
+        "A human representative can help with that request. Would you like me to connect you?"
+    ),
+    "documents_unavailable": (
+        "Since the requested document can't be obtained, a human claims representative can "
+        "review the file with you for manual options. Would you like me to connect you?"
+    ),
 }
 
 _CONSENT = {
@@ -153,6 +160,13 @@ def template(a: Act) -> str:
         return "What would you like to know about this claim?"
     if kind == ActKind.GOODBYE:
         return "Thanks for getting in touch, and take care. You're welcome back any time."
+    if kind == ActKind.UNSUPPORTED_ACTION:
+        return (
+            "I'm not able to make requests or changes to a claim, such as filing an appeal, but "
+            "I can share what's on file and the next steps."
+        )
+    if kind == ActKind.ASK_WHICH_DOCUMENT:
+        return f"Which of these documents are you unable to get: {join_words(d['options'], 'or')}?"
     return (
         "I'm having trouble with that right now. I haven't changed or guessed anything. I can try "
         "again, or connect you with a human representative."

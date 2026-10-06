@@ -58,6 +58,8 @@ SAMPLES = {
     ActKind.ASK_ANYTHING_ELSE: {},
     ActKind.ASK_WHAT_NEEDED: {},
     ActKind.GOODBYE: {},
+    ActKind.UNSUPPORTED_ACTION: {},
+    ActKind.ASK_WHICH_DOCUMENT: {"options": ["pathology report", "office note"]},
 }
 
 

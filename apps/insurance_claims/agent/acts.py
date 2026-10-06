@@ -43,6 +43,8 @@ class ActKind(StrEnum):
     ASK_ANYTHING_ELSE = "ASK_ANYTHING_ELSE"
     ASK_WHAT_NEEDED = "ASK_WHAT_NEEDED"
     GOODBYE = "GOODBYE"
+    UNSUPPORTED_ACTION = "UNSUPPORTED_ACTION"
+    ASK_WHICH_DOCUMENT = "ASK_WHICH_DOCUMENT"
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,7 @@ ASK_PRIORITY = (
     ActKind.REQUEST_REP_IDENTITY,
     ActKind.ASK_DISAMBIGUATION,
     ActKind.REQUEST_FIELDS,
+    ActKind.ASK_WHICH_DOCUMENT,
     ActKind.ASK_WHAT_NEEDED,
     ActKind.ASK_ANYTHING_ELSE,
 )
@@ -137,6 +140,11 @@ _HUMAN_REASONS = {
     "case_loop_limit": (
         "Say you can only go through a few claims in one conversation, and a human "
         "representative can help with more."
+    ),
+    "unsupported_action": "Say a human representative can help with that request.",
+    "documents_unavailable": (
+        "Say that since the requested document cannot be obtained, a human claims "
+        "representative can review the file with them for manual options."
     ),
 }
 
@@ -255,6 +263,16 @@ def describe(a: Act) -> str:
         return "Ask what they would like to know about this claim."
     if kind == ActKind.GOODBYE:
         return "Thank them and say goodbye briefly, and that they can reach out again if needed."
+    if kind == ActKind.UNSUPPORTED_ACTION:
+        return (
+            "Say plainly that you cannot make requests or changes to a claim or account, such as "
+            "filing an appeal, but that you can share what is on file and the next steps."
+        )
+    if kind == ActKind.ASK_WHICH_DOCUMENT:
+        return (
+            "Ask which of these documents they are unable to get: "
+            f"{join_words(d['options'], 'or')}. This is the single question in the reply."
+        )
     return (
         "Say you are having trouble with that right now, that you have not changed or guessed "
         "anything, and offer to try again or connect them with a human representative."
