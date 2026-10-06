@@ -2,5 +2,6 @@ fastapi>=0.110,<1.0
 uvicorn>=0.29
 pydantic>=2.12,<3
 anthropic>=0.40
+openai>=1.60
 python-dateutil>=2.9
 python-dotenv>=1.0

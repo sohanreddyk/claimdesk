@@ -92,6 +92,12 @@ def test_invalid_bool_and_int_are_clear_errors():
         Settings.from_env({"MAX_CASE_LOOPS": "lots"})
 
 
+def test_the_reasoning_effort_is_optional_and_blank_means_unset():
+    assert Settings().llm_reasoning_effort is None
+    assert Settings.from_env({"LLM_REASONING_EFFORT": " low "}).llm_reasoning_effort == "low"
+    assert Settings.from_env({"LLM_REASONING_EFFORT": ""}).llm_reasoning_effort is None
+
+
 def test_the_email_address_attempt_limit_is_configurable_and_positive():
     assert Settings().max_email_address_attempts == 2
     assert Settings.from_env({"MAX_EMAIL_ADDRESS_ATTEMPTS": "3"}).max_email_address_attempts == 3

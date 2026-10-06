@@ -19,6 +19,7 @@ _STR_FIELDS = {
     "LLM_API_KEY": "llm_api_key",
     "LLM_MODEL": "llm_model",
     "LLM_MODEL_FAST": "llm_model_fast",
+    "LLM_REASONING_EFFORT": "llm_reasoning_effort",
     "CONSENT_SCENARIO": "consent_scenario",
 }
 
@@ -44,6 +45,8 @@ class Settings(BaseModel):
     llm_api_key: str | None = None
     llm_model: str = "claude-sonnet-5-5"
     llm_model_fast: str = "claude-haiku-4-5-20251001"
+    # OpenAI reasoning models only (e.g. "low" answers faster). Unset means the provider default.
+    llm_reasoning_effort: str | None = None
 
     # Data
     fixtures_dir: Path = DEFAULT_FIXTURES_DIR

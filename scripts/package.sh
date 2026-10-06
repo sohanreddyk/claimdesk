@@ -12,7 +12,7 @@ cd "$ROOT"
 
 # 1. Refuse to package if anything that looks like an API key is tracked.
 if git rev-parse --git-dir >/dev/null 2>&1; then
-  if git grep -nE "sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9]{32,}" -- . ':!scripts/package.sh'; then
+  if git grep -nE "sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9_-]{32,}" -- . ':!scripts/package.sh'; then
     echo "ERROR: possible API key found in tracked files. Aborting." >&2
     exit 1
   fi
