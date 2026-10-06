@@ -120,6 +120,131 @@ report", "what about my dental claim?", and "that's all" (which offers a summary
 
 ## How it works
 
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph BROWSER["Browser (React UI)"]
+        UI["Conversation<br/>customer messages and replies"]
+        INSP["SOP inspector<br/>evaluator only"]
+    end
+
+    subgraph API["FastAPI app (one port)"]
+        CHAT["POST /api/chat<br/>returns reply and ended only"]
+        SESS["In-memory sessions<br/>per-session lock, expiry, caps"]
+        DBG["GET /api/session/ID/debug<br/>404 unless the inspector is on"]
+    end
+
+    subgraph AGENT["SOP agent: deterministic code"]
+        UND["Understanding<br/>pre-pass, then validate what the model proposes"]
+        MEM["State and memory<br/>phase, factors, hints, audit trail"]
+        CTRL["SOP controller<br/>decides every phase move and dialogue act"]
+        PH["Phase handlers<br/>verify, resolve, process, post"]
+        GA["Grounded answer<br/>facts in, literal check, facts-only fallback"]
+        REN["Renderer<br/>LLM phrasing, template fallback"]
+        GUARD["Output guard<br/>claim-leak and PII-echo checks"]
+    end
+
+    LLM[("LLM provider<br/>Anthropic or OpenAI")]
+    TOOLS["Tool gateway<br/>verified party and ownership checks"]
+    DATA[("Fixtures<br/>parties, claims, guidelines")]
+    OUT["Simulated outbox<br/>summary email"]
+
+    UI -->|"message"| CHAT
+    CHAT --> SESS --> UND
+    UND <-->|"extract fields only"| LLM
+    UND --> MEM --> CTRL --> PH
+    PH -->|"after verification"| TOOLS --> DATA
+    PH --> GA
+    GA <-->|"claim facts only"| LLM
+    PH --> REN
+    REN <-->|"wording only"| LLM
+    GA --> GUARD
+    REN --> GUARD
+    GUARD -->|"reply"| CHAT
+    CHAT -->|"reply and ended"| UI
+    PH -->|"explicit yes only"| OUT
+    INSP -.->|"polls"| DBG
+    DBG -.-> MEM
+```
+
+*(The diagrams render on GitHub and in any Markdown viewer with Mermaid support. In a plain text editor
+they show as readable source, and the text pipeline further down describes the same flow.)*
+
+How to read it:
+
+- **A message flows left to right.** The API finds the session, code understands the message, the
+  controller decides what happens, and the reply passes the output guard before it is returned.
+- **The model is used in three places only:** extracting fields from the caller's words, wording an
+  answer from claim facts that code assembled, and phrasing replies. It has no tools and cannot set
+  the phase or who is verified.
+- **Claim data has one door.** Only the tool gateway reaches it, only after verification, and only for
+  the verified party. Nothing from the claim files is placed in a prompt before that.
+- **The inspector is a side channel.** It exists only when `ENABLE_DEBUG_INSPECTOR=true`. The customer's
+  API response is always just `{reply, ended}`.
+
+### The workflow, phase by phase
+
+```mermaid
+flowchart TB
+    START(["Caller sends a message"]) --> V
+
+    V["VERIFY_ID<br/>strict: code decides<br/>LLM extracts fields and phrases replies"]
+    R["RESOLVE_INTENT<br/>bounded: closed intent set<br/>the verified caller's claims only"]
+    P["PROCESS_CASE<br/>grounded: facts assembled by code<br/>LLM words the answer, a guard checks it"]
+    E["POST_PROCESS<br/>consent-gated: offer the summary email<br/>send only on an explicit yes"]
+    D(["COMPLETE"])
+    H(["Human representative"])
+
+    V -->|"3 matching factors on one record<br/>(plus policyholder consent for a representative)"| R
+    R -->|"one claim resolved"| P
+    P -->|"caller is done"| E
+    E -->|"sent, skipped or no address on file"| D
+    E -->|"new question about the same claim"| P
+    E -->|"a different claim"| R
+    P -->|"a different claim (at most 3 switches)"| R
+    V & R & P -.->|"a limit is reached, or the caller asks"| H
+    H --> D
+```
+
+1. **VERIFY_ID (strict).** Callers can give details in any order across several messages. Anything else
+   they say (what they are calling about, which claim, a refusal) is remembered but never acted on.
+   Three of five factors must match **one** record: full name, date of birth, phone, email, and the last
+   four digits of an SSN or national ID. A policy number only finds the record and never counts. Refusing
+   one field offers the others at no cost. Refusing verification outright is explained once, then a
+   human is offered. Three wrong values stop automated verification and offer a human. A representative
+   also needs an authorization record and the policyholder's approval (simulated), which is only
+   requested after three factors match.
+2. **RESOLVE_INTENT (bounded).** The remembered hints (claim type, status, month, claim number) are
+   scored against only the verified caller's claims. One clear match is confirmed in the reply and can
+   be corrected. Several candidates get one targeted question. No claims offers a human.
+3. **PROCESS_CASE (grounded).** Code assembles the facts (status, denial reason, requested documents,
+   the appeal deadline with days remaining computed from the clock) and the matching guidance. The model
+   words an answer from those facts alone. A guard checks every claim number, date, amount, day count
+   and document name; a failure gets one retry, then the answer is built straight from the facts. A
+   request the agent cannot perform (such as filing an appeal) is declined and a human is offered. "I
+   can't get that document" gets the guideline's alternatives, then a human.
+4. **POST_PROCESS (consent-gated).** When the caller is done, the agent offers a summary email to the
+   address on file (shown masked). It sends only on an explicit yes: a bare "okay" or a question never
+   counts. A policyholder may name another address, which is read back and needs a second yes. A
+   representative can only use the address on file. The summary is built by a template from structured
+   notes, with no transcript and no identity values. A new question returns to the claim.
+
+Three things apply in every phase:
+
+- **Scope.** In-scope and general insurance questions are answered. Anything else gets a polite
+  decline, repeated attempts lead to a human offer, and attempts to change the agent's instructions
+  are declined.
+- **Emotion.** A frustrated, anxious, confused or upset caller gets an acknowledgment first, then the
+  reason a step exists, then the allowed options, then one next question. Empathy never bypasses a
+  gate, and persistent anger or distress leads to a human.
+- **Ending.** If the caller finishes before any claim was discussed, the session completes without the
+  email offer. A human transfer also ends the automated session.
+
+Margaret's opening message shows the whole path in a single turn: the details and the remembered
+"denied healthcare claim from January" are extracted, three factors match, the hints resolve to
+CL-2048 without a question, and the denial is explained from the claim's facts.
+
 ### The turn pipeline
 
 ```
