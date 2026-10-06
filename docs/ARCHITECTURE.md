@@ -131,6 +131,16 @@ class TurnUnderstanding(BaseModel):
 
 Never parse prose for safety decisions. The regex pre-pass (email, 4-digit run after "last four", phone, ISO/US dates, `POL-\d+`, number words to digits, "at/dot" to `@`/`.`) is merged with LLM output. Code format-validation wins on conflict. If the LLM times out, VERIFY_ID still works from the pre-pass.
 
+### Implementation notes (extraction and memory, as built)
+
+- The LLM-facing schema is the flat `LLMExtraction`. `TurnUnderstanding` extends it with code-derived fields. The ID-type hint (`ssn` / `national_id` / `unspecified`) is derived from keywords in the message by code; the LLM is not asked for it. This supersedes `id_kind_hint` in the schema above.
+- A deterministic pre-pass (email, phone, DOB with a cue like "DOB is" or "born", ID last-four with a cue, policy number by known prefix, spoken digits and spoken emails) runs first and wins over the LLM on any identity value.
+- An LLM-only identity value is kept only if it is a usable instance of the factor **and** grounded in the message text (a spoken DOB must show month, day and year; an ID that looks like a phone fragment or a DOB year is dropped; names must appear in the message). Dropped values are audited as `EXTRACTION_DROPPED`. This prevents a hallucinated value from costing a genuine caller a verification strike.
+- Requests for a human are also caught by regex, so escalation does not depend on the LLM.
+- Only the message, the last agent reply and field-name flags go to the model: never stored PII values, never claim data, and the follow-up topic list only once verified.
+- On LLM failure: one retry for malformed output, then fall back to a pre-pass-only understanding with `fallback_reason` set. Verification keeps working.
+- Memory (`apply_understanding`) records facts only. It never changes phase, verifies anyone or touches claims. The representative role is sticky, and the ID-type hint belongs to the most recent ID value.
+
 ## 7. VERIFY_ID (strict)
 
 Factors: `full_name`, `dob`, `phone`, `email`, `id_last4`. Need at least `MIN_FACTORS = 3` matching **the same party record**. `policy_number` selects a candidate but never counts.
