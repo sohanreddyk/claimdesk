@@ -7,7 +7,10 @@ export interface Scenario {
    * same whatever the server's own default is. */
   consentScenario: "default" | "timeout";
   message: string;
+  /** One line saying what the scenario demonstrates. */
   hint: string;
+  /** The colour of the dot beside it in the menu. Decoration only. */
+  accent: "blue" | "amber" | "teal" | "slate" | "green";
 }
 
 const MARGARET =
@@ -24,7 +27,8 @@ export const SCENARIOS: Scenario[] = [
     label: "Margaret demo",
     consentScenario: "default",
     message: MARGARET,
-    hint: "Verifies from one message and explains the denial.",
+    hint: "Happy-path denial workflow",
+    accent: "blue",
   },
   {
     id: "frustrated",
@@ -33,14 +37,16 @@ export const SCENARIOS: Scenario[] = [
     message:
       "This is ridiculous, I've been trying to get an answer about my claim for weeks and " +
       "nobody helps me! I'm Margaret Chen, DOB 1985-03-15, SSN last four 4472.",
-    hint: "Acknowledges the frustration, then verifies.",
+    hint: "Empathy + verification recovery",
+    accent: "amber",
   },
   {
     id: "out-of-scope",
     label: "Out-of-scope retries",
     consentScenario: "default",
     message: "What's the weather like in Seattle today?",
-    hint: "Send it a few times to reach the out-of-scope limit.",
+    hint: "Scope guard + escalation (send it a few times)",
+    accent: "teal",
   },
   {
     id: "ssn-refusal",
@@ -49,20 +55,23 @@ export const SCENARIOS: Scenario[] = [
     message:
       "I'm Margaret Chen and my date of birth is 1985-03-15, but I'm not comfortable giving " +
       "out my SSN. I'd rather not share it.",
-    hint: "Refuse again to see what repeated refusals do.",
+    hint: "Refusal handling + alternative factors",
+    accent: "slate",
   },
   {
     id: "rep-approved",
     label: "Representative approved",
     consentScenario: "default",
     message: DAVID,
-    hint: "The policyholder's consent is approved.",
+    hint: "Representative with policyholder consent",
+    accent: "green",
   },
   {
     id: "rep-timeout",
     label: "Representative timeout",
     consentScenario: "timeout",
     message: DAVID,
-    hint: "The policyholder's consent times out.",
+    hint: "Consent timeout + human handoff",
+    accent: "amber",
   },
 ];

@@ -5,6 +5,11 @@ export interface ChatMessage {
   id: number;
   role: "user" | "assistant";
   text: string;
+  /** When the entry was added, in epoch milliseconds. */
+  at: number;
+  /** For assistant entries: the revision that follows this reply. The evaluator view fetched
+   * for that revision describes exactly this turn. Null for the customer's own messages. */
+  revision: number | null;
 }
 
 export interface Conversation {
@@ -41,10 +46,12 @@ export function useConversation(): Conversation {
   const [ended, setEnded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+
   // Bumped whenever a new session begins, so a slow response from an old session can never be
   // added to the new transcript.
   const generation = useRef(0);
   const nextId = useRef(1);
+  const revisionRef = useRef(0);
   const started = useRef(false);
 
   const start = useCallback(async (consentScenario?: string) => {
@@ -59,9 +66,16 @@ export function useConversation(): Conversation {
     try {
       const session = await createSession(consentScenario);
       if (gen !== generation.current) return false;
+      const greeting: ChatMessage = {
+        id: nextId.current++,
+        role: "assistant",
+        text: session.greeting,
+        at: Date.now(),
+        revision: revisionRef.current + 1,
+      };
       setSessionId(session.session_id);
-      setMessages([{ id: nextId.current++, role: "assistant", text: session.greeting }]);
-      setRevision((r) => r + 1);
+      setMessages([greeting]);
+      setRevision(++revisionRef.current);
       return true;
     } catch (err) {
       if (gen !== generation.current) return false;
@@ -85,7 +99,13 @@ export function useConversation(): Conversation {
     if (!text || busy || ended || starting || !sessionId) return;
 
     const gen = generation.current;
-    const sent: ChatMessage = { id: nextId.current++, role: "user", text };
+    const sent: ChatMessage = {
+      id: nextId.current++,
+      role: "user",
+      text,
+      at: Date.now(),
+      revision: null,
+    };
     setMessages((prev) => [...prev, sent]);
     setInput("");
     setBusy(true);
@@ -93,10 +113,14 @@ export function useConversation(): Conversation {
     try {
       const response = await sendMessage(sessionId, text);
       if (gen !== generation.current) return;
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId.current++, role: "assistant", text: response.reply },
-      ]);
+      const reply: ChatMessage = {
+        id: nextId.current++,
+        role: "assistant",
+        text: response.reply,
+        at: Date.now(),
+        revision: revisionRef.current + 1, // the value the finally block below moves to
+      };
+      setMessages((prev) => [...prev, reply]);
       if (response.ended) setEnded(true);
     } catch (err) {
       if (gen !== generation.current) return;
@@ -112,7 +136,7 @@ export function useConversation(): Conversation {
     } finally {
       if (gen === generation.current) {
         setBusy(false);
-        setRevision((r) => r + 1);
+        setRevision(++revisionRef.current);
       }
     }
   }, [input, busy, ended, starting, sessionId]);

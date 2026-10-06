@@ -252,3 +252,164 @@ describe("failures", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
+
+describe("the console", () => {
+  it("labels every entry with its sender and a time", async () => {
+    mockFetch(api(() => json({ reply: "Your claim was denied.", ended: false })));
+    const user = await open();
+    await say(user, "Why was it denied?");
+    await screen.findByText("Your claim was denied.");
+
+    const entries = within(screen.getByRole("log", { name: "Conversation" })).getAllByRole("article");
+    expect(entries.map((entry) => entry.getAttribute("aria-label"))).toEqual([
+      "Message from Claims support",
+      "Message from you",
+      "Message from Claims support",
+    ]);
+    for (const entry of entries) {
+      const time = entry.querySelector("time");
+      expect(time?.getAttribute("datetime")).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    }
+    // The agent's entries say they are automated; the customer's do not.
+    expect(within(entries[0]).getByText("Claims support")).toBeInTheDocument();
+    expect(within(entries[0]).getByText("Automated")).toBeInTheDocument();
+    expect(within(entries[1]).getByText("You")).toBeInTheDocument();
+    expect(within(entries[1]).queryByText("Automated")).not.toBeInTheDocument();
+  });
+
+  it("shows the session and whether the conversation is open or ended", async () => {
+    mockFetch(api(() => json({ reply: "Goodbye.", ended: true })));
+    const user = await open();
+    expect(screen.getByText("Active session")).toBeInTheDocument();
+    expect(screen.getByText(/^Session /)).toBeInTheDocument();
+
+    await say(user, "that's all");
+
+    expect(await screen.findByText("Session ended")).toBeInTheDocument();
+    expect(screen.queryByText("Active session")).not.toBeInTheDocument();
+  });
+
+  it("copies a short session reference, never the full session id", async () => {
+    mockFetch(api());
+    const user = await open();
+
+    await user.click(screen.getByRole("button", { name: "Copy session reference" }));
+
+    expect(await screen.findByText("Copied")).toBeInTheDocument();
+    expect(await navigator.clipboard.readText()).toBe("s1");
+  });
+
+  it("has a clean header: the product name, its tagline, a synthetic-data badge and New conversation", async () => {
+    mockFetch(api());
+    await open();
+
+    const header = within(screen.getByText("ClaimDesk").closest("header") as HTMLElement);
+    expect(header.getByText("ClaimDesk")).toBeInTheDocument();
+    expect(header.getByText("Guided insurance claims support")).toBeInTheDocument();
+    expect(header.getByText("Demo · synthetic data")).toBeInTheDocument();
+    expect(header.getByRole("button", { name: "New conversation" })).toBeInTheDocument();
+  });
+
+  it("opens with a secure-session strip that states the guarantee", async () => {
+    mockFetch(api());
+    await open();
+
+    expect(screen.getByText("Secure claims conversation")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Identity verification is required before protected claim information/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Identity verified")).not.toBeInTheDocument();
+  });
+
+  it("says how to send, and Enter really does send while Shift+Enter does not", async () => {
+    const fetchMock = mockFetch(api());
+    const user = await open();
+    expect(screen.getByText("Enter to send · Shift+Enter for new line")).toBeInTheDocument();
+
+    await user.type(box(), "line one{Shift>}{Enter}{/Shift}line two");
+    expect(chatCalls(fetchMock)).toHaveLength(0);
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("ok")).toBeInTheDocument();
+    expect(chatCalls(fetchMock)).toHaveLength(1);
+  });
+
+  it("shows a typing indicator while a reply is on its way, and says so in words", async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    mockFetch(api(() => pending));
+    const user = await open();
+
+    await say(user, "hello");
+
+    expect(await screen.findByText("The assistant is replying…")).toBeInTheDocument();
+    expect(document.querySelector(".typing-dots")).not.toBeNull();
+    release(json({ reply: "done", ended: false }));
+    expect(await screen.findByText("done")).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector(".typing-dots")).toBeNull());
+  });
+
+  it("shows an ordinary reply as a plain card, with no grounded accent", async () => {
+    mockFetch(api());
+    const user = await open();
+    await say(user, "hello");
+    await screen.findByText("ok");
+
+    expect(screen.getByText("ok").closest("article")).not.toHaveClass("is-grounded");
+    expect(screen.getByText(GREETING).closest("article")).not.toHaveClass("is-grounded");
+  });
+
+  it("asks for the message with exactly the words 'Type your message'", async () => {
+    mockFetch(api());
+    await open();
+
+    expect(screen.getByPlaceholderText("Type your message")).toBe(box());
+    expect(screen.queryByPlaceholderText(/customer/i)).not.toBeInTheDocument();
+  });
+
+  it("shows one time marker above the first message, and no more as the conversation grows", async () => {
+    mockFetch(api());
+    const user = await open();
+    expect(screen.getAllByText(/^Today · /)).toHaveLength(1);
+
+    await say(user, "hello");
+    await screen.findByText("ok");
+    await say(user, "and again");
+    await waitFor(() => expect(transcript().getAllByText("ok")).toHaveLength(2));
+
+    expect(screen.getAllByText(/^Today · /)).toHaveLength(1);
+  });
+
+  it("can start a new conversation at any time from the header", async () => {
+    let sessions = 0;
+    mockFetch((url) => {
+      if (url === "/api/session") {
+        sessions += 1;
+        return json({ session_id: `s${sessions}`, greeting: `Greeting ${sessions}` });
+      }
+      return json({ detail: "not found" }, 404);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Greeting 1");
+
+    await user.click(screen.getByRole("button", { name: "New conversation" }));
+
+    expect(await screen.findByText("Greeting 2")).toBeInTheDocument();
+    expect(screen.queryByText("Greeting 1")).not.toBeInTheDocument();
+  });
+
+  it("is a plain customer conversation when the server has no evaluator view", async () => {
+    mockFetch(api());
+    const user = await open();
+    await say(user, "hello");
+    await screen.findByText("ok");
+
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.queryByText("SOP inspector")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Workflow inspector" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Grounded in claim record")).not.toBeInTheDocument();
+  });
+});

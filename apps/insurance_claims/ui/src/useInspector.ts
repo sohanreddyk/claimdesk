@@ -9,6 +9,8 @@ export type InspectorStatus = "unknown" | "on" | "off";
 export interface InspectorState {
   status: InspectorStatus;
   view: DebugView | null;
+  /** The revision the current view was fetched for, so a view can be tied to one reply. */
+  viewRevision: number | null;
 }
 
 /** Fetches the inspector view after the session opens and after every turn (`revision`). It
@@ -16,13 +18,16 @@ export interface InspectorState {
 export function useInspector(sessionId: string | null, revision: number): InspectorState {
   const [status, setStatus] = useState<InspectorStatus>("unknown");
   const [view, setView] = useState<DebugView | null>(null);
+  const [viewRevision, setViewRevision] = useState<number | null>(null);
   const off = useRef(false);
   const seenOnce = useRef(false);
 
   useEffect(() => {
     if (off.current) return;
     if (!sessionId) {
-      setView(null); // a new session is on its way: do not show the old one's workings
+      // A new session is on its way: do not show the old one's workings.
+      setView(null);
+      setViewRevision(null);
       return;
     }
     let cancelled = false;
@@ -41,6 +46,7 @@ export function useInspector(sessionId: string | null, revision: number): Inspec
         seenOnce.current = true;
         setStatus("on");
         setView(next);
+        setViewRevision(revision);
       })
       .catch(() => {
         // A failed refresh keeps whatever is on screen.
@@ -50,5 +56,5 @@ export function useInspector(sessionId: string | null, revision: number): Inspec
     };
   }, [sessionId, revision]);
 
-  return { status, view };
+  return { status, view, viewRevision };
 }

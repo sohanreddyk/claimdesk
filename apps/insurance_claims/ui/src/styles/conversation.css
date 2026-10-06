@@ -1,0 +1,662 @@
+/* Application shell and the customer conversation. */
+
+/* ---- shell and header ------------------------------------------------------------------ */
+
+.shell {
+  /* Exactly the viewport: the header keeps its height and everything below it takes the rest, so
+     the page itself does not scroll and the panels scroll inside. */
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.appbar {
+  flex: none;
+  height: var(--appbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  background: var(--surface);
+  border-top: 2px solid var(--brand-600);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brand-mark {
+  flex: none;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.brand-name {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--navy-950);
+}
+
+.brand-tagline {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.appbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.env-tag {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.drawer-toggle,
+.drawer-close {
+  display: none;
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 20px 20px;
+}
+
+.main.with-inspector {
+  grid-template-columns: minmax(0, 1fr) var(--inspector-width);
+}
+
+/* ---- the conversation panel ------------------------------------------------------------ */
+
+/* The panel fills the height below the header. The transcript takes whatever is left and scrolls
+   inside it; the composer stays at the bottom of the panel in normal flex flow. */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+
+.conv-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.conv-head h1 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+
+.state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.state-active {
+  color: var(--green-700);
+  background: var(--green-50);
+  border-color: var(--green-100);
+}
+
+.state-active .state-dot {
+  background: var(--green-700);
+}
+
+/* A compact strip that says what the SOP guarantees, and confirms it once verified. */
+.secure-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 24px;
+  font-size: 13px;
+  color: var(--navy-900);
+  background: var(--brand-75);
+  border-bottom: 1px solid var(--brand-100);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.secure-banner p {
+  margin: 0;
+}
+
+.secure-banner span:not(.secure-icon) {
+  color: var(--text-secondary);
+}
+
+.secure-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--brand-700);
+}
+
+.secure-verified {
+  background: var(--green-50);
+  border-bottom-color: var(--green-100);
+}
+
+.secure-verified .secure-icon {
+  color: var(--green-700);
+}
+
+/* ---- transcript ------------------------------------------------------------------------ */
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--canvas);
+}
+
+.transcript-inner {
+  display: flex;
+  flex-direction: column;
+  /* The composer below is `--column` minus this padding wide, so the two line up. */
+  max-width: var(--column);
+  margin: 0 auto;
+  padding: 20px 24px 28px;
+}
+
+.system-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.system-note.padded {
+  padding: 12px 16px;
+}
+
+/* Shown once, above the first message of a session: a quiet anchor, like a messaging app's. */
+.time-divider {
+  align-self: center;
+  margin: 0 0 14px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+.msg {
+  animation: msg-in var(--dur) var(--ease);
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* Rhythm: a new speaker gets more room than a follow-on message from the same one. */
+.transcript-inner > .msg + .msg {
+  margin-top: 18px;
+}
+
+.transcript-inner > .msg-assistant + .msg-assistant,
+.transcript-inner > .msg-customer + .msg-customer {
+  margin-top: 6px;
+}
+
+.msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sender {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sender-tag {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.msg time {
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-body {
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Support messages: a small mark, a quiet meta line, and a bubble that is only as wide as its
+   text, up to about 72% of the conversation. Only the corner nearest the speaker is tighter. */
+.msg-assistant {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  column-gap: 10px;
+  max-width: 77%;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--on-primary);
+  background: var(--navy-900);
+  border-radius: 50%;
+}
+
+.msg-main {
+  min-width: 0;
+}
+
+.msg-assistant .msg-meta {
+  margin-bottom: 4px;
+  padding-left: 2px;
+}
+
+.msg-card {
+  width: fit-content;
+  max-width: 100%;
+  padding: 11px 15px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px 16px 16px 6px;
+  box-shadow: var(--shadow-card);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+/* A claim answer read from the claim record: a pale teal surface and the grounded row. */
+.is-grounded .msg-card {
+  background: var(--teal-50);
+  border-color: var(--teal-100);
+}
+
+.grounded {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--teal-700);
+  border-top: 1px solid var(--teal-100);
+  animation: msg-in var(--dur) var(--ease);
+}
+
+.grounded svg {
+  color: var(--teal-600);
+}
+
+/* The customer's messages: right-aligned and as wide as the text, in a solid brand-blue bubble
+   (no gradient) with a soft shadow, up to about 64% of the conversation. */
+.msg-customer {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 64%;
+}
+
+.msg-customer .msg-meta {
+  padding-right: 4px;
+}
+
+.msg-customer .msg-body {
+  padding: 9px 15px;
+  line-height: 1.5;
+  color: var(--on-primary);
+  background: var(--bubble-user);
+  border-radius: var(--radius-bubble) var(--radius-bubble) 6px var(--radius-bubble);
+  box-shadow: var(--shadow-bubble);
+  text-align: left;
+}
+
+.typing {
+  display: inline-flex;
+  align-self: flex-start;
+  margin: 12px 0 0 36px;
+  padding: 12px 15px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px 16px 16px 6px;
+  box-shadow: var(--shadow-card);
+  animation: msg-in var(--dur) var(--ease);
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.typing-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: typing-dot 1.1s var(--ease) infinite;
+}
+
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.error {
+  flex: none;
+  padding: 8px 24px;
+  color: var(--red-700);
+  background: var(--red-100);
+  border-top: 1px solid var(--border);
+}
+
+/* ---- composer -------------------------------------------------------------------------- */
+
+/* The area shares the transcript's canvas so the white input floats above it. */
+.composer {
+  position: relative;
+  flex: none;
+  padding: 12px 24px 20px;
+  background: var(--canvas);
+  border-top: 1px solid var(--border);
+}
+
+.composer-inner {
+  /* Same width as the text of the messages above (the transcript pads each side by 24px). */
+  max-width: calc(var(--column) - 48px);
+  margin: 0 auto;
+}
+
+.composer-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-bubble);
+  box-shadow: var(--shadow-composer);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+.composer-box:hover:not(:focus-within) {
+  border-color: var(--border-strong);
+}
+
+.composer-box:focus-within {
+  border-color: var(--color-focus);
+  box-shadow: var(--focus-ring-strong), var(--shadow-composer);
+}
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  max-height: 132px;
+  padding: 15px 18px 4px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-bubble) var(--radius-bubble) 0 0;
+  resize: none;
+  overflow-y: auto;
+}
+
+/* The ring is drawn around the whole box when the text field has focus. */
+.composer textarea:focus-visible {
+  outline: none;
+}
+
+.composer textarea::placeholder {
+  color: var(--text-secondary);
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px 10px 18px;
+}
+
+.counter,
+.composer-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.counter {
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-hint {
+  margin-left: auto;
+}
+
+/* The Send button: a rich brand blue that lifts on hover and settles when pressed; pale blue and
+   flat when there is nothing to send. */
+.btn-send {
+  gap: 8px;
+  padding: 8px 16px 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 12px;
+  box-shadow: var(--shadow-bubble);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.btn-send svg {
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.btn-send:hover:not(:disabled) {
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.btn-send:hover:not(:disabled) svg {
+  transform: translateX(2px);
+}
+
+.btn-send:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-xs);
+}
+
+.btn-send:disabled {
+  color: var(--send-disabled-text);
+  background: var(--brand-100);
+  border-color: var(--brand-100);
+  box-shadow: none;
+}
+
+.closed-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.closed-bar p {
+  color: var(--text-secondary);
+}
+
+/* ---- narrower screens ------------------------------------------------------------------ */
+
+@media (max-width: 1050px) {
+  .drawer-toggle {
+    display: inline-flex;
+  }
+
+  .main.with-inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Between tablet and desktop the header would be too full, so the environment badge goes first. */
+@media (max-width: 900px) {
+  .env-tag {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .brand-tagline {
+    display: none;
+  }
+
+  .appbar {
+    padding: 0 12px;
+  }
+
+  .main {
+    padding: 10px 10px 12px;
+    gap: 10px;
+  }
+
+  .conv-head,
+  .secure-banner,
+  .error {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .transcript-inner {
+    padding: 16px 14px 24px;
+  }
+
+  .composer {
+    padding: 10px 14px 12px;
+  }
+
+  .msg-assistant {
+    max-width: 94%;
+  }
+
+  .msg-customer {
+    max-width: 84%;
+  }
+
+  .composer-hint {
+    display: none;
+  }
+
+  .counter {
+    margin-right: auto;
+  }
+}
+
+/* Very narrow screens: let the header's controls wrap instead of overflowing. */
+@media (max-width: 520px) {
+  .appbar {
+    height: auto;
+    min-height: var(--appbar-height);
+    flex-wrap: wrap;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .appbar-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}

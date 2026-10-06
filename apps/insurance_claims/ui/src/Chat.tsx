@@ -1,5 +1,8 @@
 import { useEffect, useRef } from "react";
-import type { KeyboardEvent } from "react";
+import { ConversationHeader, type SessionState } from "./conversation/ConversationHeader";
+import { MessageList } from "./conversation/MessageList";
+import { ConversationClosedBar, MessageComposer } from "./conversation/MessageComposer";
+import { SecureSessionBanner } from "./conversation/SecureSessionBanner";
 import type { ChatMessage } from "./useConversation";
 
 interface ChatProps {
@@ -15,10 +18,18 @@ interface ChatProps {
   ready: boolean;
   error: string | null;
   maxLength: number;
+  /** A short, non-secret reference to the open session. */
+  sessionLabel: string | null;
+  /** Reply revisions the SOP inspector confirms were answered from the claim record. */
+  groundedRevisions: ReadonlySet<number>;
+  /** Whether the SOP inspector reports the caller as verified (false when it is not available). */
+  identityVerified: boolean;
+  verifiedAs: string | null;
 }
 
-/** The customer-facing chat. Presentational: all state lives in useConversation. Messages are
- * rendered as plain text, never as HTML. */
+/** The customer conversation: a header, the secure-session strip, the transcript and a composer.
+ * Presentational: all state lives in useConversation. Messages are rendered as plain text, never
+ * as HTML. */
 export function Chat({
   messages,
   input,
@@ -31,110 +42,53 @@ export function Chat({
   ready,
   error,
   maxLength,
+  sessionLabel,
+  groundedRevisions,
+  identityVerified,
+  verifiedAs,
 }: ChatProps) {
-  const transcriptRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
   const canSend = ready && !busy && !ended && !starting && input.trim().length > 0;
-
-  useEffect(() => {
-    const el = transcriptRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, busy]);
+  const state: SessionState = starting
+    ? { text: "Connecting", active: false }
+    : ended
+      ? { text: "Session ended", active: false }
+      : ready
+        ? { text: "Active session", active: true }
+        : { text: "Not connected", active: false };
 
   // After every reply (and when the session first opens) the cursor is back in the box.
   useEffect(() => {
     if (ready && !busy && !ended && !starting) inputRef.current?.focus();
   }, [ready, busy, ended, starting]);
 
-  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-      event.preventDefault();
-      if (canSend) onSend();
-    }
-  }
-
   return (
-    <section className="chat" aria-label="Claims support chat">
-      <header className="chat-header">
-        <h1>Claims support</h1>
-      </header>
-
-      <div
-        className="transcript"
-        role="log"
-        aria-live="polite"
-        aria-label="Conversation"
-        ref={transcriptRef}
-      >
-        {starting && (
-          <p className="status" role="status">
-            Connecting…
-          </p>
-        )}
-        {messages.map((message) => (
-          <div key={message.id} className={`message ${message.role}`}>
-            <span className="sr-only">{message.role === "user" ? "You: " : "Assistant: "}</span>
-            {message.text}
-          </div>
-        ))}
-        {busy && (
-          <p className="status" role="status">
-            The assistant is replying…
-          </p>
-        )}
-      </div>
-
+    <section className="workspace" aria-label="Customer conversation">
+      <ConversationHeader sessionLabel={sessionLabel} state={state} />
+      <SecureSessionBanner verified={identityVerified} verifiedAs={verifiedAs} />
+      <MessageList
+        messages={messages}
+        busy={busy}
+        starting={starting}
+        groundedRevisions={groundedRevisions}
+      />
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-
-      {ended ? (
-        <div className="ended">
-          <p>This conversation has ended.</p>
-          <button type="button" onClick={onRestart}>
-            Start new conversation
-          </button>
-        </div>
-      ) : !starting && !ready ? (
-        <div className="ended">
-          <button type="button" onClick={onRestart}>
-            Try again
-          </button>
-        </div>
+      {ended || (!starting && !ready) ? (
+        <ConversationClosedBar ended={ended} onRestart={onRestart} />
       ) : (
-        <form
-          className="composer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (canSend) onSend();
-          }}
-        >
-          <label htmlFor="message" className="sr-only">
-            Your message
-          </label>
-          <textarea
-            id="message"
-            ref={inputRef}
-            value={input}
-            maxLength={maxLength}
-            rows={2}
-            disabled={!ready}
-            placeholder="Type your message"
-            onChange={(event) => onInput(event.target.value)}
-            onKeyDown={onKeyDown}
-          />
-          <div className="composer-row">
-            <span className="counter">
-              {input.length} / {maxLength}
-            </span>
-            <button type="submit" disabled={!canSend}>
-              Send
-            </button>
-          </div>
-        </form>
+        <MessageComposer
+          input={input}
+          onInput={onInput}
+          onSend={onSend}
+          canSend={canSend}
+          ready={ready}
+          maxLength={maxLength}
+          inputRef={inputRef}
+        />
       )}
     </section>
   );

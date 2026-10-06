@@ -1,0 +1,596 @@
+/* The SOP inspector: an evaluator-only panel with a slightly different surface from the
+   conversation, so it reads as a separate instrument. */
+
+.inspector {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: 13px;
+}
+
+.inspector-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 16px 10px;
+  background: var(--brand-50);
+  border-bottom: 1px solid var(--brand-100);
+  /* A soft edge, so the header reads as separate from the sections that scroll beneath it. */
+  box-shadow: var(--shadow-down);
+}
+
+.inspector-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inspector-title h2 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--navy-900);
+}
+
+.badge {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  color: var(--brand-700);
+  background: var(--surface);
+  border: 1px solid var(--brand-100);
+  border-radius: var(--radius-sm);
+}
+
+.inspector-head p {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.panel {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel:last-child {
+  border-bottom: 0;
+}
+
+.panel h3 {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.panel-sub {
+  margin: -6px 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.panel h4 {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rows {
+  margin: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.row dt {
+  color: var(--text-secondary);
+}
+
+.row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- workflow stepper ------------------------------------------------------------------ */
+
+.stepper {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+.stepper li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 10px;
+  margin-top: 4px;
+  padding: 3px 8px 3px 6px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.stepper li:first-child {
+  margin-top: 0;
+}
+
+.stepper li[data-state="done"] {
+  color: var(--text-primary);
+}
+
+.stepper li[data-state="current"] {
+  font-weight: 600;
+  color: var(--navy-900);
+  background: var(--brand-75);
+  box-shadow: inset 0 0 0 1px var(--brand-100);
+}
+
+.step-rail {
+  position: relative;
+  height: 18px;
+}
+
+.step-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--on-primary);
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.step-done {
+  background: var(--green-700);
+  border-color: var(--green-700);
+}
+
+.step-current {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+}
+
+.step-current::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: var(--on-primary);
+  border-radius: 50%;
+}
+
+.step-line {
+  position: absolute;
+  top: 18px;
+  left: calc(50% - 1px);
+  width: 2px;
+  /* The gap between two markers: row padding (3 + 3) plus the row margin (4). */
+  height: 10px;
+  background: var(--line);
+  transition: background-color var(--dur) var(--ease);
+}
+
+.step-line[data-filled="true"] {
+  background: var(--green-700);
+}
+
+/* ---- identity -------------------------------------------------------------------------- */
+
+.status-block {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.status-block.status-good {
+  background: var(--green-50);
+  border-color: var(--green-100);
+}
+
+.status-block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--text-secondary);
+  background: var(--border);
+  border-radius: 50%;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.status-good .status-icon {
+  color: var(--green-700);
+  background: var(--green-100);
+}
+
+.progress {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.progress span {
+  height: 7px;
+  background: var(--track);
+  border-radius: 3px;
+  transition: background-color var(--dur) var(--ease);
+}
+
+.progress span[data-filled="true"] {
+  background: var(--brand-600);
+}
+
+.status-good .progress span[data-filled="true"] {
+  background: var(--green-700);
+}
+
+.factors {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.factors li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.factors li span:first-child {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+/* ---- current case and remembered context ----------------------------------------------- */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+.empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 4px;
+  color: var(--brand-600);
+  background: var(--brand-50);
+  border-radius: 50%;
+}
+
+.empty-title {
+  font-weight: 600;
+}
+
+.empty-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Once a claim exists this is the strongest card in the inspector. */
+.case-card {
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--brand-100);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.case-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.case-id {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--navy-950);
+}
+
+.case-type {
+  margin: 2px 0 8px;
+  color: var(--text-secondary);
+}
+
+/* Remembered values are hints that were heard, so they are neutral and dashed, never a status. */
+.hint-chip {
+  display: inline-block;
+  padding: 0 7px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* ---- safety ---------------------------------------------------------------------------- */
+
+.safety-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--safe-bg);
+  border: 1px solid var(--safe-border);
+  border-radius: var(--radius-md);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.safety-card + .rows {
+  margin-top: 10px;
+}
+
+.safety-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--green-700);
+}
+
+.safety-title {
+  font-weight: 600;
+}
+
+.safety-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.safety-signals,
+.safety-escalation {
+  background: var(--amber-50);
+  border-color: var(--amber-100);
+}
+
+.safety-signals .safety-icon,
+.safety-escalation .safety-icon {
+  color: var(--amber-700);
+}
+
+/* ---- activity timeline ----------------------------------------------------------------- */
+
+.timeline {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.timeline li {
+  display: grid;
+  grid-template-columns: 44px 18px minmax(0, 1fr);
+  column-gap: 8px;
+  padding-bottom: 12px;
+}
+
+.timeline li:last-child {
+  padding-bottom: 0;
+}
+
+.timeline-time {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.timeline-rail::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: -12px;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.timeline li:last-child .timeline-rail::after {
+  display: none;
+}
+
+.timeline-icon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+}
+
+.timeline li[data-tone="good"] .timeline-icon {
+  color: var(--green-700);
+  background: var(--green-50);
+  border-color: var(--green-100);
+}
+
+.timeline li[data-tone="warn"] .timeline-icon {
+  color: var(--amber-700);
+  background: var(--amber-50);
+  border-color: var(--amber-100);
+}
+
+.timeline-text {
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.log {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.log li {
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+
+/* Monospace is for raw identifiers only: act kinds, tool names, event types. */
+.log code {
+  padding: 0 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.disclosure {
+  margin-top: 2px;
+}
+
+.mail-body {
+  margin: 4px 0 0;
+  padding: 8px;
+  font: 12px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* ---- technical details ----------------------------------------------------------------- */
+
+.panel-quiet h3 {
+  margin-bottom: 0;
+}
+
+.accordion-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.accordion-button:hover {
+  color: var(--text-primary);
+}
+
+.accordion-body,
+.disclosure > div {
+  animation: reveal var(--dur) var(--ease);
+}
+
+.accordion-body {
+  margin-top: 10px;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* ---- narrower screens: the inspector becomes a slide-over drawer ----------------------- */
+
+.backdrop {
+  display: none;
+}
+
+@media (max-width: 1050px) {
+  .drawer-close {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .inspector {
+    display: none;
+  }
+
+  .inspector.open {
+    display: block;
+    position: fixed;
+    z-index: 30;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(92vw, 380px);
+    border-width: 0 0 0 1px;
+    border-radius: 0;
+    box-shadow: var(--shadow-sm);
+    animation: drawer-in var(--dur) var(--ease);
+  }
+
+  .backdrop {
+    display: block;
+    position: fixed;
+    z-index: 25;
+    inset: 0;
+    background: var(--scrim);
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
