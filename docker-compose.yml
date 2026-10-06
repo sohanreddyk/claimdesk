@@ -1,0 +1,22 @@
+# docker compose up --build   ->   http://127.0.0.1:8000
+#
+# Configuration comes from a local .env if there is one (copy .env.example to get the
+# evaluator profile: inspector on, demo date fixed, LLM key slot). Without one the app still
+# starts, with the inspector off and the LLM in its built-in fallback mode.
+services:
+  claims-agent:
+    build: .
+    image: goaly-claims-agent
+    ports:
+      - "127.0.0.1:8000:8000" # local only; widen deliberately if you need to
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    read_only: true # nothing is written to disk: sessions and the outbox live in memory
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

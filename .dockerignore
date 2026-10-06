@@ -1,0 +1,23 @@
+# Allowlist: nothing enters the build context unless it is named here, so notes, local
+# secrets, git history and installed dependencies can never end up in an image by accident.
+*
+
+!requirements.txt
+!requirements-dev.txt
+!pyproject.toml
+!apps/insurance_claims/agent
+!apps/insurance_claims/api
+!apps/insurance_claims/fixtures
+!apps/insurance_claims/tests
+!apps/insurance_claims/ui
+
+# Later lines win: even inside the allowed folders, never these.
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.env
+**/.env.*
+**/.DS_Store
+apps/insurance_claims/ui/node_modules
+apps/insurance_claims/ui/dist
