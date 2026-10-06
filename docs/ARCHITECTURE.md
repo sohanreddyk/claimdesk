@@ -270,7 +270,7 @@ Emotion modifies acts, never gates. Order inside a reply: acknowledge -> explain
 
 ## 14. Configuration (thresholds live in config, not prompts)
 
-`MIN_FACTORS=3`, `MAX_MISMATCHES=3`, `MAX_VERIFICATION_REFUSALS=2`, `MAX_OOS_STRIKES=2`, `MAX_FRUSTRATION_STREAK=3`, `MAX_CONSENT_POLLS=5`, `MAX_CASE_LOOPS=3`, `MAX_EMAIL_ADDRESS_ATTEMPTS=2`, `AS_OF_DATE` (optional, see Clock), `ENABLE_DEBUG_INSPECTOR=false`, `CONSENT_SCENARIO=default|timeout`, `FIXTURES_DIR`, `LLM_PROVIDER=anthropic`, `LLM_MODEL_FAST`, `LLM_MODEL`, `LLM_API_KEY`.
+`MIN_FACTORS=3`, `MAX_MISMATCHES=3`, `MAX_VERIFICATION_REFUSALS=2`, `MAX_OOS_STRIKES=2`, `MAX_FRUSTRATION_STREAK=3`, `MAX_CONSENT_POLLS=5`, `MAX_CASE_LOOPS=3`, `MAX_EMAIL_ADDRESS_ATTEMPTS=2`, `AS_OF_DATE` (optional, see Clock), `ENABLE_DEBUG_INSPECTOR=false`, `CONSENT_SCENARIO=default|timeout`, `FIXTURES_DIR`, `LLM_PROVIDER=anthropic|openai`, `LLM_REASONING_EFFORT` (optional, OpenAI only), `LLM_MODEL_FAST`, `LLM_MODEL`, `LLM_API_KEY`.
 
 ### Clock
 
@@ -411,4 +411,16 @@ goaly/
 
 - `consent_scenarios.json` is for representative approval. If it turns out to mean email consent, only sections 7 and 13 change.
 - Demo `.env.example` pins `AS_OF_DATE` to a fixture-era date; the code default is the real system date.
-- Anthropic is the default provider behind the client protocol.
+- Anthropic is the default provider behind the client protocol; an OpenAI adapter sits behind the same interface.
+
+## 21. As built: where the implementation differs from this design
+
+The design above was frozen before implementation. These are the deliberate or accepted differences, so nothing here is a surprise:
+
+- **Customer chat response is `{reply, ended}` only.** The design allowed a transfer indicator and email send/skip chips (sections 13 and 14). The built UI has neither: email consent is natural language only, and the server never sends anything else to the customer UI.
+- **No in-UI API-key field** (section 15). The key comes from `LLM_API_KEY` (environment or `.env`). Without one the app boots and runs in a reduced mode: verification from pre-pass fields still works, and replies come from templates and the claim facts. Understanding free-form language needs the model.
+- **Two LLM providers**, Anthropic and OpenAI, behind the same two-method interface. The OpenAI adapter uses a forced function call for structured output (validated again in code) and gives reasoning models extra output headroom, since hidden reasoning tokens count against the cap.
+- **Pre-verification leak tests** use the real claim strings from the fixtures (checking the extraction prompt and every unverified reply) rather than planted canary strings (section 17).
+- **Tier 2 (live-LLM scenarios)** are run through the inspector's scenario buttons and `scripts/smoke_llm.py`, not an automated script. Tier 3 is the Docker smoke test (`scripts/docker_smoke.sh`) and, where present, a browser test.
+- **Dialogue act names and module names** differ slightly from sections 4 and 18 (for example `REQUEST_REP_IDENTITY`, `understanding.py`, `summary.py`, `outbox.py`). The authoritative list is `ActKind` in `agent/acts.py`.
+- **Docker runs Python 3.12**; development used 3.14. The image build can run the whole Python suite (`docker build --target test .`).
