@@ -408,7 +408,7 @@ describe("the console", () => {
 
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
     expect(screen.queryByText("SOP inspector")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Demo scenarios" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Workflow inspector" })).not.toBeInTheDocument();
     expect(screen.queryByText("Grounded in claim record")).not.toBeInTheDocument();
   });

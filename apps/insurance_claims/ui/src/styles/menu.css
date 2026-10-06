@@ -5,6 +5,28 @@
   position: relative;
 }
 
+/* A labelled secondary trigger: findable at a glance, but quieter than New conversation (muted
+   text, no fill until hover) so it does not compete with the primary action. */
+.menu-trigger {
+  gap: 6px;
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.menu-trigger:hover:not(:disabled),
+.menu-trigger[aria-expanded="true"] {
+  color: var(--text-primary);
+  background: var(--surface-subtle);
+}
+
+.menu-trigger svg {
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.menu-trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
 .menu-list {
   position: absolute;
   z-index: 20;
@@ -102,4 +124,16 @@
 
 .dot-green {
   background: var(--green-700);
+}
+
+/* On narrow screens the header's controls can wrap, so the list is anchored to the viewport
+   instead of to its trigger and always stays fully on screen. */
+@media (max-width: 640px) {
+  .menu-list {
+    position: fixed;
+    top: calc(var(--appbar-height) + 8px);
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
 }

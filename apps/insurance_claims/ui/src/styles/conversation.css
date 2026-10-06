@@ -645,8 +645,9 @@
   }
 }
 
-/* Very narrow screens: let the header's controls wrap instead of overflowing. */
-@media (max-width: 520px) {
+/* Narrow screens: let the header's controls wrap instead of overflowing. The labelled Demo
+   scenarios button makes the row wider than it was, so this starts earlier. */
+@media (max-width: 640px) {
   .appbar {
     height: auto;
     min-height: var(--appbar-height);

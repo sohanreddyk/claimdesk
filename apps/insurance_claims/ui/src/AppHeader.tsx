@@ -4,7 +4,7 @@ import { BrandMark } from "./BrandMark";
 interface AppHeaderProps {
   onNewConversation: () => void;
   starting: boolean;
-  /** The overflow menu with the demo scenarios (evaluator mode only). */
+  /** The Demo scenarios menu (evaluator mode only). */
   menu: ReactNode;
   /** Whether the inspector exists, so there is a drawer to open on narrower screens. */
   hasInspector: boolean;
@@ -33,6 +33,7 @@ export function AppHeader({
       </div>
       <div className="appbar-right">
         <span className="env-tag">Demo · synthetic data</span>
+        {menu}
         {hasInspector && (
           <button
             ref={toggleRef}
@@ -48,7 +49,6 @@ export function AppHeader({
         <button type="button" className="btn" onClick={onNewConversation} disabled={starting}>
           New conversation
         </button>
-        {menu}
       </div>
     </header>
   );

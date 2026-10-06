@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { MoreIcon } from "./icons";
+import { ChevronDownIcon } from "./icons";
 import type { Scenario } from "./scenarios";
 import { SCENARIOS } from "./scenarios";
 
@@ -13,8 +13,9 @@ function itemsOf(menu: HTMLElement | null): HTMLElement[] {
   return menu ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) : [];
 }
 
-/** An overflow menu holding the prepared demo scenarios. Choosing one starts a new conversation
- * with the message ready in the box; nothing is sent until the evaluator presses Send. */
+/** The prepared demo scenarios, opened from a labelled secondary button so an evaluator can find
+ * them at a glance. Choosing one starts a new conversation with the message ready in the box;
+ * nothing is sent until the evaluator presses Send. */
 export function ScenarioMenu({ disabled, onPick }: ScenarioMenuProps) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -75,15 +76,15 @@ export function ScenarioMenu({ disabled, onPick }: ScenarioMenuProps) {
       <button
         ref={buttonRef}
         type="button"
-        className="icon-btn"
-        aria-label="More actions"
+        className="btn menu-trigger"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
       >
-        <MoreIcon size={16} />
+        Demo scenarios
+        <ChevronDownIcon size={14} />
       </button>
       {open && (
         <div

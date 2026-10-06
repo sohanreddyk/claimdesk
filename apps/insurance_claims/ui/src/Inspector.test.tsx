@@ -52,7 +52,7 @@ const sessionBodies = (fetchMock: FetchMock) =>
   callsTo(fetchMock, "/api/session").map(([, init]) => JSON.parse(String(init?.body)));
 
 const messageBox = () => screen.getByLabelText("Your message");
-const menuButton = () => screen.getByRole("button", { name: "More actions" });
+const menuButton = () => screen.getByRole("button", { name: "Demo scenarios" });
 const pane = async () =>
   within(await screen.findByRole("complementary", { name: "SOP inspector" }));
 
@@ -86,7 +86,7 @@ describe("availability", () => {
 
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
     expect(screen.queryByText("SOP inspector")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Demo scenarios" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Workflow inspector" })).not.toBeInTheDocument();
 
     await user.type(messageBox(), "hello{Enter}");
@@ -634,7 +634,7 @@ describe("technical details", () => {
   });
 });
 
-describe("the overflow menu of demo scenarios", () => {
+describe("the Demo scenarios menu", () => {
   it("is closed until asked for, then lists the prepared scenarios with their descriptions", async () => {
     const { user } = await openWithInspector(server({ debug: serving() }));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
@@ -651,11 +651,19 @@ describe("the overflow menu of demo scenarios", () => {
     expect(menuButton()).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("is a quiet icon button, not a labelled button that competes with New conversation", async () => {
+  it("is a labelled secondary button beside New conversation, not a hidden icon", async () => {
     await openWithInspector(server({ debug: serving() }));
-    expect(menuButton().textContent).toBe("");
-    expect(screen.queryByRole("button", { name: "Demo scenarios" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New conversation" })).toBeInTheDocument();
+    const trigger = menuButton();
+    const header = within(trigger.closest("header") as HTMLElement);
+    const newConversation = header.getByRole("button", { name: "New conversation" });
+
+    expect(trigger).toHaveTextContent("Demo scenarios");
+    expect(trigger).not.toHaveClass("btn-primary");
+    // It comes before New conversation in the top-right group, and no icon-only button remains.
+    expect(trigger.compareDocumentPosition(newConversation) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
   });
 
   it("puts focus on the first item, moves with the arrow keys, and closes with Escape", async () => {
@@ -746,6 +754,64 @@ describe("the overflow menu of demo scenarios", () => {
     expect(screen.queryByText("late reply")).not.toBeInTheDocument();
     expect(screen.queryByText("The assistant is replying…")).not.toBeInTheDocument();
     expect(screen.getByText("Greeting 2")).toBeInTheDocument();
+  });
+});
+
+describe("the Demo scenarios button", () => {
+  it("is visible in evaluator mode, and clicking it opens a menu that includes Margaret demo", async () => {
+    const { user } = await openWithInspector(server({ debug: serving() }));
+    const trigger = screen.getByRole("button", { name: "Demo scenarios" });
+    expect(trigger).toBeVisible();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    await user.click(trigger);
+
+    const menu = within(screen.getByRole("menu", { name: "Demo scenarios" }));
+    expect(menu.getByRole("menuitem", { name: "Margaret demo" })).toBeInTheDocument();
+    expect(menu.getByText("Happy-path denial workflow")).toBeInTheDocument();
+    for (const { label } of SCENARIOS) {
+      expect(menu.getByRole("menuitem", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("runs Margaret demo exactly as the scenario buttons always did", async () => {
+    const { fetchMock, user } = await openWithInspector(server({ debug: serving() }));
+
+    await user.click(screen.getByRole("button", { name: "Demo scenarios" }));
+    await user.click(screen.getByRole("menuitem", { name: "Margaret demo" }));
+
+    // A fresh conversation, with the message ready in the box and nothing sent.
+    expect(await screen.findByText("Greeting 2")).toBeInTheDocument();
+    await waitFor(() => expect(messageBox()).toHaveValue(SCENARIOS[0].message));
+    expect(sessionBodies(fetchMock)).toEqual([{}, { consent_scenario: "default" }]);
+    expect(callsTo(fetchMock, "/api/chat")).toHaveLength(0);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("can be closed again from its own button, with Escape, or by clicking elsewhere", async () => {
+    const { user } = await openWithInspector(server({ debug: serving() }));
+    const trigger = screen.getByRole("button", { name: "Demo scenarios" });
+
+    await user.click(trigger);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await user.click(trigger);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    await user.click(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("is not offered at all when the server has no evaluator view", async () => {
+    mockFetch(server({ debug: noInspector }));
+    render(<App />);
+    await screen.findByText(GREETING);
+    expect(screen.queryByRole("button", { name: "Demo scenarios" })).not.toBeInTheDocument();
   });
 });
 

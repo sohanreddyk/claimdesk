@@ -55,8 +55,8 @@ templates. Understanding free-form language (names, intent, emotion, scope) need
 
 With the inspector on, the right-hand pane (the "SOP inspector", marked evaluator-only) shows the
 agent's workings as structured sections: Workflow, Identity, Current Case, Remembered Context,
-Safety and Activity, with the raw internals collapsed under Technical details. The overflow menu
-(the ⋯ button in the top bar) holds the **Demo scenarios**: choosing one starts a fresh conversation
+Safety and Activity, with the raw internals collapsed under Technical details. The **Demo scenarios**
+button in the top bar opens the prepared scenarios: choosing one starts a fresh conversation
 and fills the message box; press **Send** to run it. Answers read from the claim record are marked
 "Grounded in claim record". On narrow screens the inspector opens from a "Workflow inspector"
 button.
