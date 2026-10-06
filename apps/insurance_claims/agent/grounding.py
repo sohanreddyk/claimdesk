@@ -216,9 +216,18 @@ def check_grounding(
     text = _blank(_DAYS, text, check_days)
 
     # document names: longest first, so "original pathology report" is seen before its
-    # shorter relative "pathology report"
+    # shorter relative "pathology report". A document is allowed if a fact lists it or if some
+    # fact's own text mentions it (for example the guidance for auto claims names the repair
+    # estimate); a document no fact mentions is not.
     vocabulary = sorted({d.casefold() for d in known_documents if d.strip()}, key=len, reverse=True)
-    allowed_documents = {d for d in vocabulary if d in {v.casefold() for v in allowed}}
+    value_set = {v.casefold() for v in allowed}
+    fact_text = " ".join(fact.text for fact in context.facts).casefold()
+    allowed_documents = {
+        d
+        for d in vocabulary
+        if d in value_set
+        or re.search(rf"(?<![a-z0-9]){re.escape(d)}(?![a-z0-9])", fact_text)
+    }
     for term in vocabulary:
         pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", re.IGNORECASE)
 

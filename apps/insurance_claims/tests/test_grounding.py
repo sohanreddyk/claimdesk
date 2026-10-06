@@ -129,6 +129,16 @@ def test_documents_are_checked_only_against_the_vocabulary_it_is_given(make_cont
     assert check_grounding("Send the repair estimate.", [], context).ok  # no vocabulary given
 
 
+def test_a_document_named_in_a_facts_own_text_is_allowed(store, make_context):
+    """The guidance for auto claims itself mentions the repair estimate, so a reply may too."""
+    reply = "Keep the repair estimate with the accident photos."
+    auto = make_context("CL-2102", intents=["document_submission"])
+    assert check_grounding(reply, [], auto, store.document_vocabulary()).ok
+    healthcare = make_context("CL-2048", intents=["document_submission"])
+    flagged = check_grounding(reply, [], healthcare, store.document_vocabulary())
+    assert kinds(flagged) == ["document"]
+
+
 # ---- fact references (provenance) ----------------------------------------------------------------
 
 
