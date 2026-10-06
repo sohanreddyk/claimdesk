@@ -200,7 +200,11 @@ def build_case_context(
             case.case_id,
             *case.documents_needed,
         )
-    if question and not matches:
+    # The guideline's catch-all is about documents and what happens next. It is added only
+    # for that kind of question about a claim that has requested documents, so a plain denial
+    # or status question never picks up an irrelevant "no separate rule" sentence.
+    about_documents = "document_submission" in intents or "next_steps" in intents
+    if question and not matches and case.documents_needed and about_documents:
         fallback = localized(guidelines.claim_followup_fallback)
         if fallback:
             add("followup.fallback", fallback)

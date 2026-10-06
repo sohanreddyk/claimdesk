@@ -1,28 +1,36 @@
 """The SOP controller: the one place that decides what happens on every turn.
 
-The LLM interprets (understanding) and phrases (renderer). Everything in between is code:
+The LLM interprets (understanding) and phrases (renderer, grounded answers). Everything in
+between is code:
 
     understand -> remember -> plan acts (escalation, empathy, scope, phase work) -> render -> guard
 
 Phase transitions happen only here, through `State.set_phase`, which itself refuses illegal
 moves. Handlers return whether they advanced the phase, and the controller keeps running
 handlers until one needs the caller's input, so a single message can carry the caller from
-VERIFY_ID through RESOLVE_INTENT into PROCESS_CASE.
+VERIFY_ID through RESOLVE_INTENT into PROCESS_CASE and answer their question.
+
+A grounded claim answer (ANSWER_FROM_FACTS) is never re-phrased: a second model pass could
+reintroduce content the grounding guard already ruled out. Turns that contain one use the fixed
+wording for their other acts and insert the answer as written.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from .acts import ASK_PRIORITY, Act, ActKind, act
 from .clock import Clock
 from .config import Settings
 from .consent import ConsentGateway
-from .fixtures import FixtureStore
+from .context import build_case_context
+from .fixtures import Case, FixtureStore
 from .guard import find_violations
 from .llm.client import LLMClient
 from .memory import MemoryUpdate, apply_understanding
+from .prepass import redact
+from .process import ProcessAnswer, generate_answer, tone_note
 from .render import render_reply
 from .resolve import case_option, has_hints, resolve_case
 from .state import Phase, State, Turn
@@ -34,13 +42,29 @@ from .verify import VerifyResult, VerifyStatus, verify_identity
 NEGATIVE_EMOTIONS = frozenset({"frustrated", "angry", "anxious", "confused", "sad"})
 ANGRY_EMOTIONS = frozenset({"frustrated", "angry"})
 
+# When a caller's request was remembered from earlier, this is what the model is asked.
+_INTENT_QUESTIONS = {
+    "denial_question": "Why was this claim denied, and what does the denial mean?",
+    "status_inquiry": "What is the status of this claim?",
+    "next_steps": "What are the next steps for this claim?",
+    "document_submission": "Which documents are needed, and how do I submit them?",
+    "general_claim_question": "Can you tell me about this claim?",
+}
+_INTENT_LABELS = {
+    "denial_question": "why the claim was denied",
+    "status_inquiry": "claim status",
+    "next_steps": "next steps",
+    "document_submission": "document requirements and submission",
+    "general_claim_question": "general questions about the claim",
+}
+
 
 @dataclass(frozen=True)
 class TurnResult:
     reply: str
     acts: tuple[Act, ...]
     phase: Phase
-    used_llm: bool  # the reply text was written by the LLM (not templates)
+    used_llm: bool  # the reply text was written by the LLM (not templates or facts)
     guard_violations: tuple[str, ...] = ()
 
 
@@ -57,6 +81,9 @@ class _Ctx:
 class _Outcome:
     acts: list[Act]
     advance: bool = False
+
+
+_Handler = Callable[[_Ctx], Awaitable[_Outcome]]
 
 
 class SopAgent:
@@ -76,7 +103,8 @@ class SopAgent:
         self._consent = consent
         self._policy_prefixes = store.policy_prefixes()
         self._topics = store.followup_topics()
-        self._handlers: dict[Phase, Callable[[_Ctx], _Outcome]] = {
+        self._vocabulary = store.document_vocabulary()
+        self._handlers: dict[Phase, _Handler] = {
             Phase.VERIFY_ID: self._verify,
             Phase.RESOLVE_INTENT: self._resolve,
             Phase.PROCESS_CASE: self._process,
@@ -104,17 +132,25 @@ class SopAgent:
                 policy_prefixes=self._policy_prefixes,
             )
             update = apply_understanding(state, understanding)
-            acts = self._plan(_Ctx(state, understanding, update, message, state.phase))
+            acts = await self._plan(_Ctx(state, understanding, update, message, state.phase))
         return await self._finish(state, acts)
 
     async def _finish(self, state: State, acts: list[Act]) -> TurnResult:
-        rendered = await render_reply(
-            self._llm, self._settings, acts, caller_first_name=self._first_name(state)
-        )
-        text = rendered.text
+        grounded = [a for a in acts if a.kind == ActKind.ANSWER_FROM_FACTS]
+        if grounded:
+            # Fixed wording around the grounded text, inserted as written. No second model pass.
+            text = render_templates(acts)
+            used_llm = grounded[0].data.get("source") in ("llm", "retry")
+        else:
+            rendered = await render_reply(
+                self._llm, self._settings, acts, caller_first_name=self._first_name(state)
+            )
+            text, used_llm = rendered.text, rendered.used_llm
+
         violations = find_violations(text, state, self._store)
         if violations:
-            state.record("OUTPUT_GUARD_BLOCKED", violations=violations, used_llm=rendered.used_llm)
+            state.record("OUTPUT_GUARD_BLOCKED", violations=violations, used_llm=used_llm)
+            used_llm = False
             text = render_templates(acts)
             if find_violations(text, state, self._store):
                 text = render_templates([act(ActKind.TECH_FALLBACK)])
@@ -123,7 +159,7 @@ class SopAgent:
             reply=text,
             acts=tuple(acts),
             phase=state.phase,
-            used_llm=rendered.used_llm and not violations,
+            used_llm=used_llm,
             guard_violations=tuple(violations),
         )
 
@@ -140,7 +176,7 @@ class SopAgent:
 
     # ---- planning ---------------------------------------------------------------------
 
-    def _plan(self, ctx: _Ctx) -> list[Act]:
+    async def _plan(self, ctx: _Ctx) -> list[Act]:
         state, u, settings = ctx.state, ctx.u, self._settings
 
         # 1. Safety and explicit human requests come first, and end the automated session.
@@ -166,7 +202,15 @@ class SopAgent:
         # 3. Scope, then 4. the phase work. Neither returns early, so a mixed message gets its
         # in-scope part handled while the rest is declined.
         acts += self._scope_acts(ctx)
-        acts += self._run_phases(ctx)
+        acts += await self._run_phases(ctx)
+
+        # A model-written grounded answer already received the tone note, so a separate
+        # acknowledgment would repeat it. A facts-only answer keeps the acknowledgment.
+        if any(
+            a.kind == ActKind.ANSWER_FROM_FACTS and a.data.get("source") in ("llm", "retry")
+            for a in acts
+        ):
+            acts = [a for a in acts if a.kind != ActKind.ACK_EMOTION]
 
         if state.frustration_streak >= settings.max_frustration_streak and not any(
             a.kind == ActKind.OFFER_HUMAN for a in acts
@@ -192,14 +236,14 @@ class SopAgent:
             return [self._offer_human(state, "out_of_scope")]
         return [act(ActKind.DECLINE_OOS, level=state.oos_strikes)]
 
-    def _run_phases(self, ctx: _Ctx) -> list[Act]:
+    async def _run_phases(self, ctx: _Ctx) -> list[Act]:
         acts: list[Act] = []
         for _ in range(len(Phase)):
             before = ctx.state.phase
             handler = self._handlers.get(before)
             if handler is None:
                 break
-            outcome = handler(ctx)
+            outcome = await handler(ctx)
             acts += outcome.acts
             if not outcome.advance or ctx.state.phase == before:
                 break
@@ -228,7 +272,7 @@ class SopAgent:
 
     # ---- VERIFY_ID (strict) -------------------------------------------------------------
 
-    def _verify(self, ctx: _Ctx) -> _Outcome:
+    async def _verify(self, ctx: _Ctx) -> _Outcome:
         state = ctx.state
         events_before = len(state.events)
         result = verify_identity(state, self._store, self._settings, self._consent)
@@ -296,7 +340,7 @@ class SopAgent:
 
     # ---- RESOLVE_INTENT (bounded) -------------------------------------------------------
 
-    def _resolve(self, ctx: _Ctx) -> _Outcome:
+    async def _resolve(self, ctx: _Ctx) -> _Outcome:
         state = ctx.state
         # Hints given after a failed attempt replace the stale ones that led nowhere.
         if state.last_resolution == "no_match":
@@ -319,9 +363,7 @@ class SopAgent:
             state.last_expected_fields = []
             return _Outcome([act(ActKind.CONFIRM_CLAIM, case=case_option(case))], advance=True)
         if resolution.kind == "no_claims":
-            return _Outcome(
-                [act(ActKind.NO_CLAIMS_FOUND), self._offer_human(state, "no_claims")]
-            )
+            return _Outcome([act(ActKind.NO_CLAIMS_FOUND), self._offer_human(state, "no_claims")])
         state.last_expected_fields = []
         return _Outcome(
             [
@@ -333,16 +375,100 @@ class SopAgent:
             ]
         )
 
-    # ---- later phases: built in the next steps ------------------------------------------
+    # ---- PROCESS_CASE (grounded) --------------------------------------------------------
 
-    def _process(self, ctx: _Ctx) -> _Outcome:
-        # Replaced by the grounded PROCESS_CASE handler in the next step. Until then a
-        # follow-up question gets a safe fallback rather than an ungrounded answer.
-        if ctx.start_phase == Phase.PROCESS_CASE:
-            return _Outcome([act(ActKind.TECH_FALLBACK, reason="process_case_not_built")])
-        return _Outcome([])
+    async def _process(self, ctx: _Ctx) -> _Outcome:
+        """Answer from the facts of the resolved claim.
 
-    def _post(self, ctx: _Ctx) -> _Outcome:
+        The claim is re-fetched through the ownership-checked gateway on every turn. The model
+        sees the facts and the caller's question with identity values blanked out."""
+        state, u = ctx.state, ctx.u
+        just_arrived = ctx.start_phase != Phase.PROCESS_CASE
+        case = ToolGateway(self._store, state).get_case(state.resolved_case_id or "")
+        if case is None:  # should not happen; fail closed rather than guess
+            return _Outcome([act(ActKind.TECH_FALLBACK, reason="case_unavailable")])
+
+        intents = list(u.intents)
+        shown = redact(ctx.message, self._policy_prefixes)
+        question: str | None = shown  # also used to match the follow-up rules
+        if intents or u.followup_topics:
+            asked = shown
+        elif just_arrived and state.intent_hint:
+            # Just reached the claim, and the caller had said what they wanted earlier.
+            intents = [state.intent_hint]
+            general = _INTENT_QUESTIONS["general_claim_question"]
+            asked = _INTENT_QUESTIONS.get(state.intent_hint, general)
+            question = None
+        elif not just_arrived and u.fallback_reason is not None and not u.user_done:
+            asked = shown  # the LLM is down, so treat the message as a question
+        else:
+            return _Outcome([act(ActKind.ASK_WHAT_NEEDED)])
+
+        context = build_case_context(
+            case,
+            guidelines=self._store.guidelines,
+            claim_schema=self._store.claim_schema,
+            clock=self._clock,
+            question=question,
+            intents=intents,
+            topics=u.followup_topics,
+        )
+        answer = await generate_answer(
+            self._llm,
+            self._settings,
+            context=context,
+            question=asked,
+            intents=intents,
+            known_documents=self._vocabulary,
+            caller_first_name=self._first_name(state),
+            tone=tone_note(state.emotion, state.severity),
+        )
+        self._record_answer(state, case, intents, context.followup_topics, answer)
+        state.intent_hint = None  # the remembered request has now been answered
+        return _Outcome(
+            [
+                act(
+                    ActKind.ANSWER_FROM_FACTS,
+                    reply=answer.reply,
+                    facts_used=list(answer.facts_used),
+                    source=answer.source,
+                    fallback_reason=answer.fallback_reason,
+                ),
+                act(ActKind.ASK_ANYTHING_ELSE),
+            ]
+        )
+
+    def _record_answer(
+        self,
+        state: State,
+        case: Case,
+        intents: list[str],
+        followup_topics: tuple[str, ...],
+        answer: ProcessAnswer,
+    ) -> None:
+        """Keep what was discussed and which facts were cited, for the summary email later."""
+        record = state.case_record
+        topics = [_INTENT_LABELS.get(i, i) for i in intents]
+        topics += [topic.replace("_", " ") for topic in followup_topics]
+        for topic in topics:
+            if topic not in record.topics_discussed:
+                record.topics_discussed.append(topic)
+        for fact_id in answer.facts_used:
+            if fact_id not in record.facts_used:
+                record.facts_used.append(fact_id)
+        record.documents_needed = list(case.documents_needed)
+        record.appeal_deadline = case.appeal_deadline
+        state.record(
+            "ANSWER_GENERATED",
+            source=answer.source,
+            cited=len(answer.facts_used),
+            reason=answer.fallback_reason,
+            problems=[v.kind for v in answer.violations],
+        )
+
+    # ---- POST_PROCESS: built in a later step ---------------------------------------------
+
+    async def _post(self, ctx: _Ctx) -> _Outcome:
         if ctx.start_phase == Phase.POST_PROCESS:
             return _Outcome([act(ActKind.TECH_FALLBACK, reason="post_process_not_built")])
         return _Outcome([])

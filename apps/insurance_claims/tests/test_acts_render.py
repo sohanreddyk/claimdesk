@@ -50,6 +50,13 @@ SAMPLES = {
     ActKind.TRANSFER_HUMAN: {},
     ActKind.SESSION_ENDED: {},
     ActKind.TECH_FALLBACK: {},
+    ActKind.ANSWER_FROM_FACTS: {
+        "reply": "Your claim was denied.",
+        "facts_used": ["case.status"],
+        "source": "llm",
+    },
+    ActKind.ASK_ANYTHING_ELSE: {},
+    ActKind.ASK_WHAT_NEEDED: {},
 }
 
 

@@ -246,11 +246,18 @@ def test_a_topic_proposed_by_the_llm_is_used_when_eligible(build):
 
 
 def test_a_question_no_rule_covers_gets_the_honest_fallback(build):
-    context = build("CL-2048", question="What about my cat?")
+    context = build("CL-2048", question="What about my cat?", intents=["next_steps"])
     assert context.followup_topics == ()
     assert texts(context)["followup.fallback"].startswith(
         "I do not see a separate claim-specific rule for that follow-up."
     )
+
+
+def test_a_denial_or_status_question_never_gets_the_followup_fallback(build):
+    for intent in ("denial_question", "status_inquiry", "general_claim_question"):
+        context = build("CL-2048", question="Why was it denied?", intents=[intent])
+        assert "followup.fallback" not in ids(context)
+    assert "followup.fallback" not in ids(build("CL-2048", question="Why was it denied?"))
 
 
 def test_no_question_means_no_fallback(build):
@@ -258,9 +265,9 @@ def test_no_question_means_no_fallback(build):
 
 
 def test_document_rules_do_not_apply_to_a_claim_without_requested_documents(build):
-    context = build("CL-2011", question="How long does it take?")
+    context = build("CL-2011", question="How long does it take?", intents=["next_steps"])
     assert context.followup_topics == ()
-    assert "followup.fallback" in ids(context)
+    assert "followup.fallback" not in ids(context)  # there are no requested documents to discuss
 
 
 # ---- rendering for the prompt ----------------------------------------------------------------

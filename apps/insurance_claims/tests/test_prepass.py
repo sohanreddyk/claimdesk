@@ -1,5 +1,5 @@
 import pytest
-from agent.prepass import id_kind_from_text, prepass, spoken_to_written
+from agent.prepass import id_kind_from_text, prepass, redact, spoken_to_written
 
 MARGARET_MSG = (
     "I'm the policyholder. My name is Margaret Chen, policy POL-9921. I'm calling about my "
@@ -130,3 +130,25 @@ def test_policy_numbers_use_known_prefixes_only():
     assert prepass("pol 9921", policy_prefixes=("POL",)).policy_number == "POL-9921"
     assert prepass("claim CL-2048", policy_prefixes=("POL",)).policy_number is None
     assert prepass("POL-9921").policy_number is None  # no prefixes known
+
+
+# ---- redaction: what may be shown to the model --------------------------------------------
+
+
+def test_redact_blanks_identity_values_but_keeps_the_question():
+    text = redact(MARGARET_MSG, policy_prefixes=("POL",))
+    for secret in ("1985-03-15", "4472", "POL-9921"):
+        assert secret not in text
+    assert "denied healthcare claim from January" in text
+    assert text.count("[redacted]") == 3
+
+
+def test_redact_covers_emails_phones_and_spoken_digits():
+    out = redact("mail margaret@email.com or call (650) 521-2836, my ssn is four four seven two")
+    assert "margaret" not in out and "521" not in out and "4472" not in out
+    assert out.count("[redacted]") == 3
+
+
+def test_redact_leaves_claim_numbers_and_year_less_dates_alone():
+    message = "what about CL-2048 from January 12?"
+    assert redact(message, policy_prefixes=("POL",)) == message

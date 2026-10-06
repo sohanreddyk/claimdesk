@@ -141,6 +141,12 @@ def template(a: Act) -> str:
         return "This conversation has ended. Please start a new one if you need anything else."
     if kind == ActKind.EMPTY_MESSAGE:
         return "I didn't receive a message. How can I help you today?"
+    if kind == ActKind.ANSWER_FROM_FACTS:
+        return str(d.get("reply", ""))
+    if kind == ActKind.ASK_ANYTHING_ELSE:
+        return "Is there anything else I can help you with?"
+    if kind == ActKind.ASK_WHAT_NEEDED:
+        return "What would you like to know about this claim?"
     return (
         "I'm having trouble with that right now. I haven't changed or guessed anything. I can try "
         "again, or connect you with a human representative."

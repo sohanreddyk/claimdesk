@@ -65,11 +65,17 @@ async def test_margaret_demo_is_verified_resolved_and_confirmed_in_one_turn(make
     state = agent.new_state("s1")
     result = await say(agent, llm, state, MARGARET_MSG, MARGARET_LLM)
 
-    assert kinds(result) == [K.VERIFIED_OK, K.CONFIRM_CLAIM]
+    assert kinds(result) == [
+        K.VERIFIED_OK,
+        K.CONFIRM_CLAIM,
+        K.ANSWER_FROM_FACTS,
+        K.ASK_ANYTHING_ELSE,
+    ]
     assert result.phase == Phase.PROCESS_CASE
     assert state.verified and state.verified_party_id == "P9"
     assert state.resolved_case_id == "CL-2048"
     assert "CL-2048" in result.reply and "January 12, 2026" in result.reply
+    assert "pathology report" in result.reply and "13 days remain" in result.reply
     assert result.guard_violations == ()
     transitions = [
         (e.data["from"], e.data["to"]) for e in state.events if e.type == "PHASE_TRANSITION"
@@ -143,7 +149,7 @@ async def test_partial_answers_accumulate_then_a_bare_id_completes_verification(
     assert "CL-2102" in second.reply and "CL-2011" in second.reply
 
     third = await say(agent, llm, state, "the denied one", {"hint_status": "denied"})
-    assert kinds(third) == [K.CONFIRM_CLAIM]
+    assert kinds(third) == [K.CONFIRM_CLAIM, K.ASK_WHAT_NEEDED]
     assert third.phase == Phase.PROCESS_CASE and state.resolved_case_id == "CL-2048"
 
 
@@ -365,7 +371,8 @@ async def test_a_hint_that_matches_nothing_is_replaced_by_the_next_description(m
     assert act_of(first, K.ASK_DISAMBIGUATION).data["none_matched"] is True
 
     second = await say(agent, llm, state, "no, the dental one", {"hint_case_type": "dental"})
-    assert kinds(second) == [K.CONFIRM_CLAIM] and state.resolved_case_id == "CL-1899"
+    assert kinds(second) == [K.CONFIRM_CLAIM, K.ASK_WHAT_NEEDED]
+    assert state.resolved_case_id == "CL-1899"
 
 
 # ---- representatives ---------------------------------------------------------------------

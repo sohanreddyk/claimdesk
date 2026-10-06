@@ -193,3 +193,29 @@ def prepass(
         policy_number=_find_policy(written, policy_prefixes),
         id_kind_hint=id_kind_from_text(written),
     )
+
+
+REDACTED = "[redacted]"
+
+
+def redact(text: str, policy_prefixes: Sequence[str] = ()) -> str:
+    """Blank out identity values (emails, phones, dates, ID last-fours, policy numbers) so a
+    message can be shown to the model without them. Spoken digits are converted first, so
+    they are caught too. Everything else, including claim numbers, is left as written."""
+    out = spoken_to_written(text)
+    out = _EMAIL.sub(REDACTED, out)
+    out = _PHONE.sub(REDACTED, out)
+    for pattern in _DATE_PATTERNS:
+        out = pattern.sub(REDACTED, out)
+
+    def blank_digits(match: re.Match[str]) -> str:
+        whole = match.group(0)
+        start = match.start("digits") - match.start()
+        end = match.end("digits") - match.start()
+        return whole[:start] + REDACTED + whole[end:]
+
+    out = _ID_VALUE.sub(blank_digits, out)
+    for prefix in policy_prefixes:
+        policy_pattern = rf"\b{re.escape(prefix)}[-\s#:]?\d{{3,10}}\b"
+        out = re.sub(policy_pattern, REDACTED, out, flags=re.IGNORECASE)
+    return out

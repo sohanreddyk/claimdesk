@@ -39,6 +39,9 @@ class ActKind(StrEnum):
     TRANSFER_HUMAN = "TRANSFER_HUMAN"
     SESSION_ENDED = "SESSION_ENDED"
     TECH_FALLBACK = "TECH_FALLBACK"
+    ANSWER_FROM_FACTS = "ANSWER_FROM_FACTS"
+    ASK_ANYTHING_ELSE = "ASK_ANYTHING_ELSE"
+    ASK_WHAT_NEEDED = "ASK_WHAT_NEEDED"
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,8 @@ ASK_PRIORITY = (
     ActKind.REQUEST_REP_IDENTITY,
     ActKind.ASK_DISAMBIGUATION,
     ActKind.REQUEST_FIELDS,
+    ActKind.ASK_WHAT_NEEDED,
+    ActKind.ASK_ANYTHING_ELSE,
 )
 
 FIELD_LABELS = {
@@ -234,6 +239,15 @@ def describe(a: Act) -> str:
         return "Say this conversation has ended and they can start a new one if they need more."
     if kind == ActKind.EMPTY_MESSAGE:
         return "Say you did not receive a message and ask how you can help."
+    if kind == ActKind.ANSWER_FROM_FACTS:
+        return (
+            "State this answer exactly as written, without changing any fact: "
+            f"{d.get('reply', '')}"
+        )
+    if kind == ActKind.ASK_ANYTHING_ELSE:
+        return "End by asking whether there is anything else you can help with."
+    if kind == ActKind.ASK_WHAT_NEEDED:
+        return "Ask what they would like to know about this claim."
     return (
         "Say you are having trouble with that right now, that you have not changed or guessed "
         "anything, and offer to try again or connect them with a human representative."
