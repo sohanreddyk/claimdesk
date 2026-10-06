@@ -57,6 +57,7 @@ SAMPLES = {
     },
     ActKind.ASK_ANYTHING_ELSE: {},
     ActKind.ASK_WHAT_NEEDED: {},
+    ActKind.GOODBYE: {},
 }
 
 

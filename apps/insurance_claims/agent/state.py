@@ -134,6 +134,7 @@ class State(BaseModel):
     resolved_case_id: str | None = None
     last_resolution: str | None = None  # unique | ambiguous | no_match | no_claims
     case_record: CaseRecord = Field(default_factory=CaseRecord)
+    closed_cases: list[CaseRecord] = []  # notes on claims the caller moved away from
 
     # Emotion, scope and escalation counters
     emotion: str = "neutral"

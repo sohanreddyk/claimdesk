@@ -17,6 +17,7 @@ wording for their other acts and insert the answer as written.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -33,7 +34,7 @@ from .prepass import redact
 from .process import ProcessAnswer, generate_answer, tone_note
 from .render import render_reply
 from .resolve import case_option, has_hints, resolve_case
-from .state import Phase, State, Turn
+from .state import CaseHints, CaseRecord, Phase, State, Turn
 from .templates import render_templates
 from .tools import ToolGateway
 from .understanding import TurnUnderstanding, understand_turn
@@ -58,6 +59,18 @@ _INTENT_LABELS = {
     "general_claim_question": "general questions about the claim",
 }
 
+# Phrases that clearly ask about a different claim. Works without the LLM.
+_SWITCH_PHRASES = re.compile(
+    r"\b(?:another|different|other)\s+claim\b"
+    r"|\bwhat about (?:my|the|that)\s+(?:[\w']+\s+){1,3}claim\b",
+    re.IGNORECASE,
+)
+
+
+def _mentions(message: str, case_id: str) -> bool:
+    pattern = rf"(?<![A-Za-z0-9]){re.escape(case_id)}(?![A-Za-z0-9])"
+    return re.search(pattern, message, re.IGNORECASE) is not None
+
 
 @dataclass(frozen=True)
 class TurnResult:
@@ -75,6 +88,7 @@ class _Ctx:
     update: MemoryUpdate
     message: str
     start_phase: Phase
+    switched: bool = False  # the caller moved to another claim during this turn
 
 
 @dataclass
@@ -349,7 +363,11 @@ class SopAgent:
                 state.case_hints = fresh
 
         tools = ToolGateway(self._store, state)
-        resolution = resolve_case(tools.list_cases(), state.case_hints, state.intent_hint)
+        cases = tools.list_cases()
+        mentioned = [c.case_id for c in cases if _mentions(ctx.message, c.case_id)]
+        if len(mentioned) == 1:  # the caller typed one of their own claim numbers
+            state.case_hints.case_id = mentioned[0]
+        resolution = resolve_case(cases, state.case_hints, state.intent_hint)
         state.last_resolution = resolution.kind
         state.record("CASE_RESOLUTION", kind=resolution.kind, candidates=len(resolution.options))
 
@@ -383,10 +401,22 @@ class SopAgent:
         The claim is re-fetched through the ownership-checked gateway on every turn. The model
         sees the facts and the caller's question with identity values blanked out."""
         state, u = ctx.state, ctx.u
-        just_arrived = ctx.start_phase != Phase.PROCESS_CASE
         case = ToolGateway(self._store, state).get_case(state.resolved_case_id or "")
         if case is None:  # should not happen; fail closed rather than guess
             return _Outcome([act(ActKind.TECH_FALLBACK, reason="case_unavailable")])
+
+        # Interim: a plain goodbye. Step 7 replaces this with the real POST_PROCESS phase.
+        asking = u.intents or u.followup_topics or u.claim_switch_request
+        if u.user_done and not asking:
+            return _Outcome([act(ActKind.GOODBYE)])
+
+        # A request about another claim goes back to resolution (switches happen at most once
+        # per turn, and the number of them per conversation is capped).
+        if ctx.start_phase == Phase.PROCESS_CASE and not ctx.switched:
+            target = self._switch_target(ctx, case)
+            if target is not None:
+                return self._switch_claim(ctx, target)
+        just_arrived = ctx.start_phase != Phase.PROCESS_CASE or ctx.switched
 
         intents = list(u.intents)
         shown = redact(ctx.message, self._policy_prefixes)
@@ -437,6 +467,47 @@ class SopAgent:
                 act(ActKind.ASK_ANYTHING_ELSE),
             ]
         )
+
+    def _switch_target(self, ctx: _Ctx, current: Case) -> CaseHints | None:
+        """The description of another claim the caller wants, or None if they are not asking
+        for one. Describing the claim that is already open is not a switch."""
+        u, message = ctx.u, ctx.message
+        cases = ToolGateway(self._store, ctx.state).list_cases()
+        other = [
+            c.case_id
+            for c in cases
+            if c.case_id != current.case_id and _mentions(message, c.case_id)
+        ]
+        asked = bool(u.claim_switch_request) or bool(_SWITCH_PHRASES.search(message))
+        if not asked and not other:
+            return None
+        fresh = u.to_case_hints()
+        if len(other) == 1:
+            fresh.case_id = other[0]
+        if has_hints(fresh):
+            match = resolve_case(cases, fresh)
+            if match.kind == "unique" and match.case is not None:
+                if match.case.case_id == current.case_id:
+                    return None
+        return fresh
+
+    def _switch_claim(self, ctx: _Ctx, fresh: CaseHints) -> _Outcome:
+        """Archive the current claim's notes, forget its hints, and resolve the new request."""
+        state = ctx.state
+        state.case_loops += 1
+        if state.case_loops > self._settings.max_case_loops:
+            return _Outcome([self._offer_human(state, "case_loop_limit")])
+        state.record("CLAIM_SWITCH", count=state.case_loops)
+        if state.case_record.case_id:
+            state.closed_cases.append(state.case_record)
+        state.case_record = CaseRecord()
+        state.resolved_case_id = None
+        state.last_resolution = None
+        state.case_hints = fresh  # the old hints described the old claim
+        state.intent_hint = ctx.u.intents[0] if ctx.u.intents else None
+        ctx.switched = True
+        state.set_phase(Phase.RESOLVE_INTENT, "caller asked about another claim")
+        return _Outcome([], advance=True)
 
     def _record_answer(
         self,

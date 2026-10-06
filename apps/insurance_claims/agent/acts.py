@@ -42,6 +42,7 @@ class ActKind(StrEnum):
     ANSWER_FROM_FACTS = "ANSWER_FROM_FACTS"
     ASK_ANYTHING_ELSE = "ASK_ANYTHING_ELSE"
     ASK_WHAT_NEEDED = "ASK_WHAT_NEEDED"
+    GOODBYE = "GOODBYE"
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,10 @@ _HUMAN_REASONS = {
         "is available."
     ),
     "no_claims": "Say a human representative can look into this with them.",
+    "case_loop_limit": (
+        "Say you can only go through a few claims in one conversation, and a human "
+        "representative can help with more."
+    ),
 }
 
 _CONSENT = {
@@ -248,6 +253,8 @@ def describe(a: Act) -> str:
         return "End by asking whether there is anything else you can help with."
     if kind == ActKind.ASK_WHAT_NEEDED:
         return "Ask what they would like to know about this claim."
+    if kind == ActKind.GOODBYE:
+        return "Thank them and say goodbye briefly, and that they can reach out again if needed."
     return (
         "Say you are having trouble with that right now, that you have not changed or guessed "
         "anything, and offer to try again or connect them with a human representative."

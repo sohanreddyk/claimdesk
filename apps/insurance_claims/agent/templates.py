@@ -58,6 +58,10 @@ _HUMAN_OFFER = {
     "no_claims": (
         "A human representative can look into this with you. Would you like me to connect you?"
     ),
+    "case_loop_limit": (
+        "I can only go through a few claims in one conversation, but a human representative can "
+        "help with more. Would you like me to connect you?"
+    ),
 }
 
 _CONSENT = {
@@ -147,6 +151,8 @@ def template(a: Act) -> str:
         return "Is there anything else I can help you with?"
     if kind == ActKind.ASK_WHAT_NEEDED:
         return "What would you like to know about this claim?"
+    if kind == ActKind.GOODBYE:
+        return "Thanks for getting in touch, and take care. You're welcome back any time."
     return (
         "I'm having trouble with that right now. I haven't changed or guessed anything. I can try "
         "again, or connect you with a human representative."
