@@ -30,6 +30,7 @@ _INT_FIELDS = {
     "MAX_FRUSTRATION_STREAK": "max_frustration_streak",
     "MAX_CONSENT_POLLS": "max_consent_polls",
     "MAX_CASE_LOOPS": "max_case_loops",
+    "MAX_EMAIL_ADDRESS_ATTEMPTS": "max_email_address_attempts",
 }
 
 
@@ -62,6 +63,7 @@ class Settings(BaseModel):
     max_frustration_streak: int = 3
     max_consent_polls: int = 5
     max_case_loops: int = 3
+    max_email_address_attempts: int = 2  # rejected alternate addresses before only the one on file
 
     @field_validator("min_factors")
     @classmethod
@@ -78,6 +80,7 @@ class Settings(BaseModel):
         "max_frustration_streak",
         "max_consent_polls",
         "max_case_loops",
+        "max_email_address_attempts",
     )
     @classmethod
     def _positive(cls, value: int) -> int:

@@ -60,6 +60,14 @@ SAMPLES = {
     ActKind.GOODBYE: {},
     ActKind.UNSUPPORTED_ACTION: {},
     ActKind.ASK_WHICH_DOCUMENT: {"options": ["pathology report", "office note"]},
+    ActKind.OFFER_EMAIL_SUMMARY: {"masked": "m***@email.com", "restricted": False},
+    ActKind.CONFIRM_EMAIL_ADDRESS: {"masked": "w***@example.com"},
+    ActKind.CLARIFY_CONSENT: {"masked": "m***@email.com"},
+    ActKind.EMAIL_SENT: {"masked": "m***@email.com"},
+    ActKind.EMAIL_SKIPPED: {},
+    ActKind.EMAIL_UNAVAILABLE: {},
+    ActKind.EMAIL_FAILED: {"masked": "m***@email.com"},
+    ActKind.EMAIL_ADDRESS_LOCKED: {"reason": "representative"},
 }
 
 

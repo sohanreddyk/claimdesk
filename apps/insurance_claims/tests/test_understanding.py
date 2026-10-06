@@ -1,7 +1,7 @@
 import pytest
 from agent.llm.client import LLMBadOutput, LLMNotConfigured, LLMTimeout, NotConfiguredClient
 from agent.llm.fake import ScriptedLLM
-from agent.state import Turn
+from agent.state import EmailState, Turn
 from agent.understanding import _wants_action, normalize_case_type, understand_turn
 
 MARGARET_MSG = (
@@ -243,6 +243,71 @@ async def test_very_long_messages_are_truncated(llm, settings, make_state):
     llm.queue_structured({})
     await understand(llm, settings, make_state(), "x" * 10_000)
     assert len(llm.calls[0].user) < 5_000
+
+
+# ---- consent to the summary email -------------------------------------------------------
+
+
+@pytest.fixture
+def offered_state(make_state):
+    state = make_state()
+    state.email_state = EmailState.OFFERED
+    return state
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("yes", "yes"),
+        ("Yes please", "yes"),
+        ("go ahead", "yes"),
+        ("send it", "yes"),
+        ("no", "no"),
+        ("no thanks", "no"),
+        ("skip it", "no"),
+        ("don't send", "no"),
+        ("okay", "unclear"),
+        ("sure", "unclear"),
+        ("fine", "unclear"),
+        ("hmm maybe", "unclear"),
+        ("what does it include?", "unclear"),
+    ],
+)
+async def test_consent_phrases_work_without_the_llm(settings, offered_state, text, expected):
+    u = await understand_turn(NotConfiguredClient(), settings, offered_state, text)
+    assert u.email_consent == expected
+
+
+async def test_a_bare_okay_is_not_consent_even_if_the_model_says_yes(
+    llm, settings, offered_state
+):
+    llm.queue_structured(*[{"email_consent": "yes"}] * 4)
+    for hedge in ("okay", "sure", "mm-hmm"):
+        u = await understand(llm, settings, offered_state, hedge)
+        assert u.email_consent == "unclear", hedge
+    explicit = await understand(llm, settings, offered_state, "yes please")
+    assert explicit.email_consent == "yes"
+
+
+async def test_a_question_is_not_consent_even_if_the_model_says_yes(llm, settings, offered_state):
+    llm.queue_structured({"email_consent": "yes"})
+    u = await understand(llm, settings, offered_state, "what does it include?")
+    assert u.email_consent == "unclear"
+
+
+async def test_the_model_saying_nothing_about_consent_is_treated_as_unclear(
+    llm, settings, offered_state
+):
+    llm.queue_structured({})
+    assert (await understand(llm, settings, offered_state, "hmm")).email_consent == "unclear"
+
+
+async def test_consent_only_exists_while_the_offer_is_open(llm, settings, make_state):
+    llm.queue_structured({"email_consent": "yes"})
+    u = await understand(llm, settings, make_state(), "yes")  # no offer was made
+    assert u.email_consent == "not_applicable"
+    down = await understand_turn(NotConfiguredClient(), settings, make_state(), "yes")
+    assert down.email_consent == "not_applicable"
 
 
 def test_case_type_aliases():

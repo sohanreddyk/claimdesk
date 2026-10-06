@@ -108,6 +108,27 @@ def test_allowed_back_edges_and_terminal_complete():
         s.set_phase(Phase.RESOLVE_INTENT)
 
 
+def test_post_process_can_return_to_the_same_claim_for_another_question():
+    s = verified_state()
+    s.set_phase(Phase.RESOLVE_INTENT)
+    s.resolved_case_id = "CL-2048"
+    s.set_phase(Phase.PROCESS_CASE)
+    s.set_phase(Phase.POST_PROCESS)
+    s.set_phase(Phase.PROCESS_CASE, "another question")
+    assert s.phase == Phase.PROCESS_CASE and s.resolved_case_id == "CL-2048"
+
+
+def test_returning_from_post_process_to_process_case_still_needs_a_resolved_case():
+    s = verified_state()
+    s.set_phase(Phase.RESOLVE_INTENT)
+    s.resolved_case_id = "CL-2048"
+    s.set_phase(Phase.PROCESS_CASE)
+    s.set_phase(Phase.POST_PROCESS)
+    s.resolved_case_id = None
+    with pytest.raises(SopViolation, match="resolved case"):
+        s.set_phase(Phase.PROCESS_CASE)
+
+
 def test_unverified_session_can_still_end_for_human_transfer():
     s = State(session_id="s1")
     s.set_phase(Phase.COMPLETE, "human transfer")

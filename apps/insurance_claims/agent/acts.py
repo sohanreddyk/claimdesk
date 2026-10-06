@@ -45,6 +45,14 @@ class ActKind(StrEnum):
     GOODBYE = "GOODBYE"
     UNSUPPORTED_ACTION = "UNSUPPORTED_ACTION"
     ASK_WHICH_DOCUMENT = "ASK_WHICH_DOCUMENT"
+    OFFER_EMAIL_SUMMARY = "OFFER_EMAIL_SUMMARY"
+    CONFIRM_EMAIL_ADDRESS = "CONFIRM_EMAIL_ADDRESS"
+    CLARIFY_CONSENT = "CLARIFY_CONSENT"
+    EMAIL_SENT = "EMAIL_SENT"
+    EMAIL_SKIPPED = "EMAIL_SKIPPED"
+    EMAIL_UNAVAILABLE = "EMAIL_UNAVAILABLE"
+    EMAIL_FAILED = "EMAIL_FAILED"
+    EMAIL_ADDRESS_LOCKED = "EMAIL_ADDRESS_LOCKED"
 
 
 @dataclass(frozen=True)
@@ -65,6 +73,10 @@ ASK_PRIORITY = (
     ActKind.ASK_DISAMBIGUATION,
     ActKind.REQUEST_FIELDS,
     ActKind.ASK_WHICH_DOCUMENT,
+    ActKind.CONFIRM_EMAIL_ADDRESS,
+    ActKind.OFFER_EMAIL_SUMMARY,
+    ActKind.CLARIFY_CONSENT,
+    ActKind.EMAIL_FAILED,
     ActKind.ASK_WHAT_NEEDED,
     ActKind.ASK_ANYTHING_ELSE,
 )
@@ -273,6 +285,25 @@ def describe(a: Act) -> str:
             "Ask which of these documents they are unable to get: "
             f"{join_words(d['options'], 'or')}. This is the single question in the reply."
         )
+    if kind == ActKind.OFFER_EMAIL_SUMMARY:
+        return (
+            f"Offer to email a summary of the conversation to {d['masked']}. Say they can "
+            "say yes or skip it."
+        )
+    if kind == ActKind.CONFIRM_EMAIL_ADDRESS:
+        return f"Ask whether to send the summary to {d['masked']} instead."
+    if kind == ActKind.CLARIFY_CONSENT:
+        return f"Ask clearly: should the summary be sent to {d['masked']}, or skipped?"
+    if kind == ActKind.EMAIL_SENT:
+        return f"Say the summary has been sent to {d['masked']}."
+    if kind == ActKind.EMAIL_SKIPPED:
+        return "Say no summary will be sent."
+    if kind == ActKind.EMAIL_UNAVAILABLE:
+        return "Say there is no email address on file, so a summary cannot be sent."
+    if kind == ActKind.EMAIL_FAILED:
+        return "Say the summary could not be sent just now and ask whether to try again."
+    if kind == ActKind.EMAIL_ADDRESS_LOCKED:
+        return "Say that for privacy the summary can only go to the address on file."
     return (
         "Say you are having trouble with that right now, that you have not changed or guessed "
         "anything, and offer to try again or connect them with a human representative."

@@ -39,7 +39,7 @@ VERIFY_ID -> RESOLVE_INTENT -> PROCESS_CASE -> POST_PROCESS -> COMPLETE
 
 A handler returns `NEEDS_INPUT` or `ADVANCE`. The controller loops handlers until one needs input, so Margaret's single message passes VERIFY_ID -> RESOLVE_INTENT -> PROCESS_CASE in one turn. Every transition is audited. Only code mutates `phase`.
 
-Allowed back-edge: POST_PROCESS -> RESOLVE_INTENT for another question (already verified; bounded by `MAX_CASE_LOOPS`).
+Allowed back-edges: POST_PROCESS -> PROCESS_CASE (a new question about the same claim: the claim is kept and not re-resolved), and POST_PROCESS or PROCESS_CASE -> RESOLVE_INTENT (a different claim; bounded by `MAX_CASE_LOOPS`).
 
 ## 4. Per-turn pipeline
 
@@ -262,15 +262,15 @@ Emotion modifies acts, never gates. Order inside a reply: acknowledge -> explain
 
 ## 13. POST_PROCESS
 
-1. After the case answer, `ASK_ANYTHING_ELSE`. `user_done` (or loop cap) -> POST_PROCESS.
-2. `OFFER_EMAIL_SUMMARY`. yes -> confirm address (on file, masked; alternative only with read-back, never for representatives) -> send. no -> skip. unclear -> `CLARIFY_CONSENT`. A bare "okay" is never consent.
+1. After each answer, `ASK_ANYTHING_ELSE`. When the caller is done (`user_done`) the controller moves to POST_PROCESS and makes the email offer in the same turn. If no claim was ever chosen there is nothing to summarize: goodbye, then COMPLETE.
+2. `OFFER_EMAIL_SUMMARY` shows the address on file, masked. An explicit yes sends, an explicit no skips, anything unclear (`CLARIFY_CONSENT`) asks again and never sends. Code, not the model, decides consent: a bare "okay"/"sure"/"mm-hmm" and any question are never a yes, even if the model says so, and with the LLM down explicit phrases (yes, send it, go ahead / no, skip it, don't send) still work. All consent wording is fixed, never model-phrased. A different address (policyholders only) is read back masked and needs a second yes; two rejected alternatives restrict it to the address on file, and a representative can only ever use the address on file. No address on file, or a failed send (the offer stays open for a retry), have their own acts.
 3. UI send/skip chips write to the same consent state as natural language.
-4. Summary is generated from the structured `case_record` (topics discussed, claim status/outcome, follow-ups, documents needed, deadline, processing time), not the transcript, and passes the same grounding guard. "Sending" writes to a visible outbox (optional SMTP).
-5. Another question after summary -> back to RESOLVE_INTENT; otherwise COMPLETE.
+4. The summary is built by a deterministic template from the structured case record (`agent/summary.py`), not from the transcript and not by the LLM, so it cannot invent a figure or carry identity values. Days remaining are computed from the clock when it is built. "Sending" writes to a visible in-memory outbox.
+5. During the offer: a new question about this claim -> PROCESS_CASE (same `resolved_case_id`, answered without `CONFIRM_CLAIM`, the offer starts over when they are done again); another claim -> RESOLVE_INTENT; yes, no or unclear -> send, skip or clarify. After a send, a skip or "no address" the session is COMPLETE.
 
 ## 14. Configuration (thresholds live in config, not prompts)
 
-`MIN_FACTORS=3`, `MAX_MISMATCHES=3`, `MAX_VERIFICATION_REFUSALS=2`, `MAX_OOS_STRIKES=2`, `MAX_FRUSTRATION_STREAK=3`, `MAX_CONSENT_POLLS=5`, `MAX_CASE_LOOPS=3`, `AS_OF_DATE` (optional, see Clock), `ENABLE_DEBUG_INSPECTOR=false`, `CONSENT_SCENARIO=default|timeout`, `FIXTURES_DIR`, `LLM_PROVIDER=anthropic`, `LLM_MODEL_FAST`, `LLM_MODEL`, `LLM_API_KEY`.
+`MIN_FACTORS=3`, `MAX_MISMATCHES=3`, `MAX_VERIFICATION_REFUSALS=2`, `MAX_OOS_STRIKES=2`, `MAX_FRUSTRATION_STREAK=3`, `MAX_CONSENT_POLLS=5`, `MAX_CASE_LOOPS=3`, `MAX_EMAIL_ADDRESS_ATTEMPTS=2`, `AS_OF_DATE` (optional, see Clock), `ENABLE_DEBUG_INSPECTOR=false`, `CONSENT_SCENARIO=default|timeout`, `FIXTURES_DIR`, `LLM_PROVIDER=anthropic`, `LLM_MODEL_FAST`, `LLM_MODEL`, `LLM_API_KEY`.
 
 ### Clock
 

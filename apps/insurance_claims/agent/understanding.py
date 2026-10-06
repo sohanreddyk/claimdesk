@@ -162,6 +162,23 @@ _ACTION_REQUEST = re.compile(
     re.IGNORECASE,
 )
 _QUESTION_WORDS = re.compile(r"\b(?:how|where|when|what|why|which|whether)\b", re.IGNORECASE)
+
+# Consent to the summary email. A bare "okay" or "sure" is never a yes: it is asked again.
+_YES_PHRASES = re.compile(
+    r"^\W*(?:yes|yeah|yep|yup|please do|go ahead|send it|please send(?: it)?|do it"
+    r"|send (?:me )?(?:the|a|that) (?:summary|email))\b",
+    re.IGNORECASE,
+)
+_NO_PHRASES = re.compile(
+    r"^\W*(?:no|nope|nah|skip(?: it)?|don'?t send|do not send|not now|pass|i'?m good"
+    r"|i am good)\b",
+    re.IGNORECASE,
+)
+_HEDGES = re.compile(
+    r"^\W*(?:ok|okay|k|sure|fine|alright|all right|m+[- ]?h?m+|h+m+|uh[- ]?huh|i guess"
+    r"|maybe|whatever)\W*$",
+    re.IGNORECASE,
+)
 _HUMAN_REQUEST = re.compile(
     r"(?:speak|talk|connect|transfer|put me)\b[^.?!]{0,40}\b"
     r"(?:human|person|representative|rep|agent|supervisor|manager|someone)\b"
@@ -172,6 +189,30 @@ _HUMAN_REQUEST = re.compile(
 
 def _digits(text: str) -> str:
     return re.sub(r"\D", "", text)
+
+
+def _consent(extraction: LLMExtraction | None, message: str, offered: bool) -> str:
+    """Consent to the summary email, decided here and not by the model alone.
+
+    Only meaningful while the offer is open. A bare "okay" or "sure" is never a yes, and
+    neither is a question, even if the model says so. With the LLM down, explicit phrases are
+    the only way to say yes or no."""
+    if not offered:
+        return "not_applicable"
+    if extraction is None:
+        if _HEDGES.match(message):
+            return "unclear"
+        if _YES_PHRASES.match(message):
+            return "yes"
+        if _NO_PHRASES.match(message):
+            return "no"
+        return "unclear"
+    value = extraction.email_consent
+    if value == "not_applicable":
+        return "unclear"
+    if value == "yes" and (_HEDGES.match(message) or message.rstrip().endswith("?")):
+        return "unclear"
+    return value
 
 
 def _wants_action(message: str) -> bool:
@@ -304,6 +345,7 @@ def _merge(
     expected: Sequence[str],
     topics: Sequence[str],
     human_offered: bool,
+    email_offered: bool,
 ) -> TurnUnderstanding:
     llm = extraction or LLMExtraction()
     written = spoken_to_written(message)
@@ -333,6 +375,7 @@ def _merge(
         followup_topics=list(dict.fromkeys(t for t in llm.followup_topics if t in topics)),
         wants_human=llm.wants_human or bool(_HUMAN_REQUEST.search(message)),
         requests_action=llm.requests_action or _wants_action(message),
+        email_consent=_consent(extraction, message, email_offered),
         accepts_human_offer=human_offered and affirmed,
         id_kind_hint=pre.id_kind_hint if id_last4 else None,
         llm_used=extraction is not None,
@@ -392,15 +435,18 @@ async def understand_turn(
     expected = tuple(state.last_expected_fields)
     pre = prepass(message, expected_fields=expected, policy_prefixes=policy_prefixes)
     topics = tuple(allowed_topics) if state.verified else ()
+    email_open = state.email_state in (EmailState.OFFERED, EmailState.ADDRESS_CONFIRM)
     prompt = build_extraction_user(
         phase=state.phase.value,
         last_agent_message=_last_agent_message(state),
         expected_fields=expected,
         provided_fields=tuple(sorted(state.factors)),
         allowed_topics=topics,
-        email_offered=state.email_state in (EmailState.OFFERED, EmailState.ADDRESS_CONFIRM),
+        email_offered=email_open,
         human_offered=state.human_offered,
         message=message,
     )
     extraction, reason = await _extract(llm, settings, prompt)
-    return _merge(extraction, reason, pre, message, expected, topics, state.human_offered)
+    return _merge(
+        extraction, reason, pre, message, expected, topics, state.human_offered, email_open
+    )

@@ -30,12 +30,16 @@ from .fixtures import Case, FixtureStore
 from .guard import find_violations
 from .guidance import match_document_key
 from .llm.client import LLMClient
+from .masking import mask_email
 from .memory import MemoryUpdate, apply_understanding
+from .normalize import normalize_email
+from .outbox import EmailSender, EmailSendError, Outbox, SentEmail
 from .prepass import redact
 from .process import ProcessAnswer, facts_only_answer, generate_answer, tone_note
 from .render import render_reply
 from .resolve import case_option, has_hints, resolve_case
-from .state import CaseHints, CaseRecord, Phase, State, Turn
+from .state import CaseHints, CaseRecord, EmailState, Phase, State, Turn
+from .summary import build_summary, has_content
 from .templates import render_templates
 from .tools import ToolGateway
 from .understanding import TurnUnderstanding, understand_turn
@@ -43,6 +47,26 @@ from .verify import VerifyResult, VerifyStatus, verify_identity
 
 NEGATIVE_EMOTIONS = frozenset({"frustrated", "angry", "anxious", "confused", "sad"})
 ANGRY_EMOTIONS = frozenset({"frustrated", "angry"})
+
+# The questions that ask about the summary email. While one of these is open, a frustration
+# escalation does not add a competing human offer, which would hide the consent question.
+_EMAIL_ASKS = frozenset(
+    {
+        ActKind.OFFER_EMAIL_SUMMARY,
+        ActKind.CONFIRM_EMAIL_ADDRESS,
+        ActKind.CLARIFY_CONSENT,
+        ActKind.EMAIL_FAILED,
+    }
+)
+# Replies built from these acts use fixed wording, inserted as written. Consent is too
+# important to leave to a model's phrasing, and grounded answers must not be re-phrased.
+_FIXED_WORDING = _EMAIL_ASKS | {
+    ActKind.ANSWER_FROM_FACTS,
+    ActKind.EMAIL_SENT,
+    ActKind.EMAIL_SKIPPED,
+    ActKind.EMAIL_UNAVAILABLE,
+    ActKind.EMAIL_ADDRESS_LOCKED,
+}
 
 # When a caller's request was remembered from earlier, this is what the model is asked.
 _INTENT_QUESTIONS = {
@@ -128,12 +152,14 @@ class SopAgent:
         llm: LLMClient,
         clock: Clock,
         consent: ConsentGateway,
+        sender: EmailSender | None = None,
     ) -> None:
         self._store = store
         self._settings = settings
         self._llm = llm
         self._clock = clock
         self._consent = consent
+        self._sender: EmailSender = sender if sender is not None else Outbox()
         self._policy_prefixes = store.policy_prefixes()
         self._topics = store.followup_topics()
         self._vocabulary = store.document_vocabulary()
@@ -169,11 +195,12 @@ class SopAgent:
         return await self._finish(state, acts)
 
     async def _finish(self, state: State, acts: list[Act]) -> TurnResult:
-        grounded = [a for a in acts if a.kind == ActKind.ANSWER_FROM_FACTS]
-        if grounded:
-            # Fixed wording around the grounded text, inserted as written. No second model pass.
+        if any(a.kind in _FIXED_WORDING for a in acts):
+            # Fixed wording, inserted as written. No second model pass over a grounded answer
+            # and no model phrasing of a consent question.
             text = render_templates(acts)
-            used_llm = grounded[0].data.get("source") in ("llm", "retry")
+            answers = [a for a in acts if a.kind == ActKind.ANSWER_FROM_FACTS]
+            used_llm = bool(answers) and answers[0].data.get("source") in ("llm", "retry")
         else:
             rendered = await render_reply(
                 self._llm, self._settings, acts, caller_first_name=self._first_name(state)
@@ -224,6 +251,15 @@ class SopAgent:
             return [act(ActKind.TRANSFER_HUMAN, reason="requested")]
         state.human_offered = False  # an offer only stays open for the very next message
 
+        # The caller is done and no claim was ever chosen: nothing to summarize, so just end.
+        if (
+            u.user_done
+            and state.phase == Phase.RESOLVE_INTENT
+            and not (u.intents or u.followup_topics or u.claim_switch_request)
+        ):
+            self._complete(state, "caller is done")
+            return [act(ActKind.GOODBYE)]
+
         # 2. Empathy before pushing the workflow forward.
         acts: list[Act] = []
         negative = state.emotion in NEGATIVE_EMOTIONS and state.severity >= 1
@@ -245,8 +281,11 @@ class SopAgent:
         ):
             acts = [a for a in acts if a.kind != ActKind.ACK_EMOTION]
 
-        if state.frustration_streak >= settings.max_frustration_streak and not any(
-            a.kind == ActKind.OFFER_HUMAN for a in acts
+        closing = any(a.kind in _EMAIL_ASKS for a in acts)
+        if (
+            state.frustration_streak >= settings.max_frustration_streak
+            and not closing
+            and not any(a.kind == ActKind.OFFER_HUMAN for a in acts)
         ):
             acts.append(self._offer_human(state, "frustration"))
         return self._one_ask(state, acts)
@@ -302,6 +341,10 @@ class SopAgent:
         state.last_expected_fields = []
         state.record("HUMAN_TRANSFER", reason=reason)
         state.set_phase(Phase.COMPLETE, f"human transfer: {reason}")
+
+    def _complete(self, state: State, reason: str) -> None:
+        state.last_expected_fields = []
+        state.set_phase(Phase.COMPLETE, reason)
 
     # ---- VERIFY_ID (strict) -------------------------------------------------------------
 
@@ -424,10 +467,10 @@ class SopAgent:
         if case is None:  # should not happen; fail closed rather than guess
             return _Outcome([act(ActKind.TECH_FALLBACK, reason="case_unavailable")])
 
-        # Interim: a plain goodbye. Step 7 replaces this with the real POST_PROCESS phase.
+        # The caller is done: move to the closing step and offer the summary email.
         asking = u.intents or u.followup_topics or u.claim_switch_request
         if u.user_done and not asking:
-            return _Outcome([act(ActKind.GOODBYE)])
+            return self._begin_post_process(ctx)
 
         # A request the agent cannot perform (for example filing an appeal) is declined in plain
         # words, with what is on file and a human offer.
@@ -487,6 +530,12 @@ class SopAgent:
             tone=tone_note(state.emotion, state.severity),
         )
         self._record_answer(state, case, intents, context.followup_topics, answer)
+        record = state.case_record
+        for doc in unavailable:
+            if doc not in record.unavailable_documents:
+                record.unavailable_documents.append(doc)
+        if exhausted:
+            record.human_review_offered = True
         state.doc_unavailable.update(unavailable)
         state.intent_hint = None  # the remembered request has now been answered
         acts = [
@@ -651,9 +700,142 @@ class SopAgent:
             problems=[v.kind for v in answer.violations],
         )
 
-    # ---- POST_PROCESS: built in a later step ---------------------------------------------
+    # ---- POST_PROCESS (consent-gated) ---------------------------------------------------
 
     async def _post(self, ctx: _Ctx) -> _Outcome:
-        if ctx.start_phase == Phase.POST_PROCESS:
-            return _Outcome([act(ActKind.TECH_FALLBACK, reason="post_process_not_built")])
-        return _Outcome([])
+        """The closing step: offer the summary email, and send it only on an explicit yes.
+
+        A question about this claim returns to PROCESS_CASE (same claim, no re-resolution),
+        and a request about another claim returns to RESOLVE_INTENT."""
+        state, u = ctx.state, ctx.u
+        if ctx.start_phase != Phase.POST_PROCESS:
+            return _Outcome([])  # the offer was made on the turn the caller finished
+        case = ToolGateway(self._store, state).get_case(state.resolved_case_id or "")
+        if case is None:
+            return _Outcome([act(ActKind.TECH_FALLBACK, reason="case_unavailable")])
+
+        target = self._switch_target(ctx, case)
+        if target is not None:
+            outcome = self._switch_claim(ctx, target)
+            if ctx.switched:
+                self._reopen(state)
+            return outcome
+        if u.intents or u.followup_topics or u.cannot_obtain_documents or u.requests_action:
+            self._reopen(state)
+            state.set_phase(Phase.PROCESS_CASE, "caller has another question about this claim")
+            return _Outcome([], advance=True)
+        return self._email_step(ctx)
+
+    def _begin_post_process(self, ctx: _Ctx) -> _Outcome:
+        state = ctx.state
+        if not has_content([*state.closed_cases, state.case_record]):
+            self._complete(state, "caller is done")
+            return _Outcome([act(ActKind.GOODBYE)])
+        state.set_phase(Phase.POST_PROCESS, "caller is done")
+        on_file = self._address_on_file(state)
+        if not on_file:
+            return self._end_without_email(state)
+        state.email_state = EmailState.OFFERED
+        state.email_address = None
+        return _Outcome([self._email_offer(state, on_file)])
+
+    def _email_step(self, ctx: _Ctx) -> _Outcome:
+        """One turn of the email conversation. Nothing is sent without an explicit yes."""
+        state, u = ctx.state, ctx.u
+        on_file = self._address_on_file(state)
+        if not on_file:
+            return self._end_without_email(state)
+        consent = u.email_consent
+        candidate = u.alt_email or u.email
+
+        if candidate and normalize_email(candidate) != normalize_email(on_file):
+            if self._email_restricted(state):
+                representative = state.verified_as == "representative"
+                reason = "representative" if representative else "attempts"
+                return _Outcome(
+                    [
+                        act(ActKind.EMAIL_ADDRESS_LOCKED, reason=reason),
+                        self._email_offer(state, on_file),
+                    ]
+                )
+            state.email_address = candidate
+            state.email_state = EmailState.ADDRESS_CONFIRM
+            return _Outcome([act(ActKind.CONFIRM_EMAIL_ADDRESS, masked=mask_email(candidate))])
+
+        if state.email_state == EmailState.ADDRESS_CONFIRM and state.email_address:
+            if consent == "yes":
+                return self._send_summary(ctx, state.email_address)
+            if consent == "no":  # they rejected their own proposal: back to the address on file
+                state.email_alt_attempts += 1
+                state.email_address = None
+                state.email_state = EmailState.OFFERED
+                return _Outcome([self._email_offer(state, on_file)])
+            return _Outcome([act(ActKind.CLARIFY_CONSENT, masked=mask_email(state.email_address))])
+
+        if state.email_state != EmailState.OFFERED:  # defensive: make the offer again
+            state.email_state = EmailState.OFFERED
+            return _Outcome([self._email_offer(state, on_file)])
+        target = state.email_address or on_file
+        if consent == "yes":
+            return self._send_summary(ctx, target)
+        if consent == "no":
+            state.email_state = EmailState.SKIPPED
+            self._complete(state, "summary declined")
+            return _Outcome([act(ActKind.EMAIL_SKIPPED), act(ActKind.GOODBYE)])
+        return _Outcome([act(ActKind.CLARIFY_CONSENT, masked=mask_email(target))])
+
+    def _send_summary(self, ctx: _Ctx, address: str) -> _Outcome:
+        state = ctx.state
+        summary = build_summary(
+            [*state.closed_cases, state.case_record],
+            first_name=self._policyholder_first_name(state),
+            clock=self._clock,
+        )
+        email = SentEmail(state.session_id, address, summary.subject, summary.body)
+        masked = mask_email(address)
+        try:
+            self._sender.send(email)
+        except EmailSendError:
+            state.record("EMAIL_FAILED")
+            state.email_address = address  # a retry goes to the same address
+            state.email_state = EmailState.OFFERED
+            return _Outcome([act(ActKind.EMAIL_FAILED, masked=masked)])
+        state.email_state = EmailState.SENT
+        state.record("EMAIL_SENT", claims=len(summary.claim_ids))
+        self._complete(state, "summary emailed")
+        return _Outcome([act(ActKind.EMAIL_SENT, masked=masked), act(ActKind.GOODBYE)])
+
+    def _end_without_email(self, state: State) -> _Outcome:
+        state.email_state = EmailState.SKIPPED
+        self._complete(state, "no email address on file")
+        return _Outcome([act(ActKind.EMAIL_UNAVAILABLE), act(ActKind.GOODBYE)])
+
+    def _email_offer(self, state: State, on_file: str) -> Act:
+        target = state.email_address or on_file
+        return act(
+            ActKind.OFFER_EMAIL_SUMMARY,
+            masked=mask_email(target),
+            restricted=self._email_restricted(state),
+        )
+
+    def _email_restricted(self, state: State) -> bool:
+        """Only the address on file may be used: always for a representative, and for anyone
+        after too many rejected alternatives."""
+        return (
+            state.verified_as == "representative"
+            or state.email_alt_attempts >= self._settings.max_email_address_attempts
+        )
+
+    def _reopen(self, state: State) -> None:
+        """The caller went back to the claim, so any email offer starts over later."""
+        state.email_state = EmailState.NOT_OFFERED
+        state.email_address = None
+
+    def _address_on_file(self, state: State) -> str | None:
+        party = self._store.get_party(state.verified_party_id or "")
+        return party.email if party and party.email else None
+
+    def _policyholder_first_name(self, state: State) -> str | None:
+        party = self._store.get_party(state.verified_party_id or "")
+        parts = party.name.split() if party else []
+        return parts[0] if parts else None

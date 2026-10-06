@@ -92,6 +92,13 @@ def test_invalid_bool_and_int_are_clear_errors():
         Settings.from_env({"MAX_CASE_LOOPS": "lots"})
 
 
+def test_the_email_address_attempt_limit_is_configurable_and_positive():
+    assert Settings().max_email_address_attempts == 2
+    assert Settings.from_env({"MAX_EMAIL_ADDRESS_ATTEMPTS": "3"}).max_email_address_attempts == 3
+    with pytest.raises(ValueError):
+        Settings.from_env({"MAX_EMAIL_ADDRESS_ATTEMPTS": "0"})
+
+
 def test_config_cannot_weaken_the_three_factor_gate():
     with pytest.raises(ValueError):
         Settings.from_env({"MIN_FACTORS": "2"})

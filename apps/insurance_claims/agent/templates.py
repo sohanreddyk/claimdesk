@@ -167,6 +167,28 @@ def template(a: Act) -> str:
         )
     if kind == ActKind.ASK_WHICH_DOCUMENT:
         return f"Which of these documents are you unable to get: {join_words(d['options'], 'or')}?"
+    if kind == ActKind.OFFER_EMAIL_SUMMARY:
+        base = f"Would you like me to email a summary of what we discussed to {d['masked']}?"
+        if d.get("restricted"):
+            return (
+                f"{base} For privacy, I can only send it to the address on file. "
+                "You can say yes, or skip it."
+            )
+        return f"{base} You can say yes, skip it, or give me a different address."
+    if kind == ActKind.CONFIRM_EMAIL_ADDRESS:
+        return f"I'll send it to {d['masked']} instead. Is that right?"
+    if kind == ActKind.CLARIFY_CONSENT:
+        return f"Just to be sure: should I send the summary to {d['masked']}, or skip it?"
+    if kind == ActKind.EMAIL_SENT:
+        return f"I've sent the summary to {d['masked']}."
+    if kind == ActKind.EMAIL_SKIPPED:
+        return "No problem, I won't send a summary."
+    if kind == ActKind.EMAIL_UNAVAILABLE:
+        return "I don't have an email address on file, so I can't send a summary."
+    if kind == ActKind.EMAIL_FAILED:
+        return "I couldn't send the summary just now. Would you like me to try again?"
+    if kind == ActKind.EMAIL_ADDRESS_LOCKED:
+        return "For privacy, I can only send the summary to the address on file."
     return (
         "I'm having trouble with that right now. I haven't changed or guessed anything. I can try "
         "again, or connect you with a human representative."

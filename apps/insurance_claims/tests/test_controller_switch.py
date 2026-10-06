@@ -199,12 +199,12 @@ def test_switch_phrases(text, expected):
 # ---- saying goodbye ------------------------------------------------------------------
 
 
-async def test_thats_all_gets_a_goodbye(make_agent):
+async def test_thats_all_moves_to_the_closing_step_and_offers_the_summary(make_agent):
     agent, llm, state = await after_margaret(make_agent)
     llm.queue_structured({"user_done": True})
     result = await agent.handle(state, "no thanks, that's all")
-    assert kinds(result) == [K.GOODBYE]
-    assert result.phase == Phase.PROCESS_CASE  # interim: the real closing step comes later
+    assert kinds(result) == [K.OFFER_EMAIL_SUMMARY]
+    assert result.phase == Phase.POST_PROCESS
 
 
 async def test_done_plus_a_question_is_still_answered(make_agent):

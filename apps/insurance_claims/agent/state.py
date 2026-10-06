@@ -35,7 +35,7 @@ ALLOWED_TRANSITIONS: dict[Phase, set[Phase]] = {
     Phase.VERIFY_ID: {Phase.RESOLVE_INTENT, Phase.COMPLETE},
     Phase.RESOLVE_INTENT: {Phase.PROCESS_CASE, Phase.COMPLETE},
     Phase.PROCESS_CASE: {Phase.POST_PROCESS, Phase.RESOLVE_INTENT, Phase.COMPLETE},
-    Phase.POST_PROCESS: {Phase.RESOLVE_INTENT, Phase.COMPLETE},
+    Phase.POST_PROCESS: {Phase.PROCESS_CASE, Phase.RESOLVE_INTENT, Phase.COMPLETE},
     Phase.COMPLETE: set(),
 }
 
@@ -151,7 +151,8 @@ class State(BaseModel):
 
     # Post-process
     email_state: EmailState = EmailState.NOT_OFFERED
-    email_address: str | None = None
+    email_address: str | None = None  # the address under discussion (pending or chosen)
+    email_alt_attempts: int = 0  # different addresses the caller proposed and then rejected
 
     # Conversation
     last_expected_fields: list[str] = []
