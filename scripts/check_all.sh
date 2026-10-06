@@ -29,6 +29,7 @@ run() { # run "label" command...
 
 run "Python tests" python -m pytest -q
 run "Python lint (ruff)" ruff check .
+run "Requirements matrix references" python scripts/check_matrix.py
 run "UI tests" npm --prefix apps/insurance_claims/ui test
 run "UI type-check and build" npm --prefix apps/insurance_claims/ui run build
 

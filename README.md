@@ -15,6 +15,8 @@ has nothing to leak: no claim data is loaded, or placed in any prompt, before id
 
 Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (the frozen design, with an "as built" section
 listing where the implementation differs).
+Requirements: [docs/requirements-matrix.md](docs/requirements-matrix.md) maps every requirement in
+the brief to the mechanism that meets it and the tests that prove it.
 
 ## Quick start (Docker)
 
@@ -174,6 +176,8 @@ python scripts/smoke_llm.py               # live check of your LLM key and model
   Includes the design's invariants, the fixture-derived scenarios, the grounding guard, the API,
   and tests that real claim details never appear in the extraction prompt or in any reply before
   verification.
+- **Requirements matrix** (`scripts/check_matrix.py`): fails if any test or file named in
+  `docs/requirements-matrix.md` no longer exists, so the matrix cannot go stale.
 - **UI** (Vitest and React Testing Library, 27 tests): chat behavior, error handling, inspector
   rendering and scenario buttons.
 - **Docker smoke test** (`scripts/docker_smoke.sh`): builds the image (running the Python suite on

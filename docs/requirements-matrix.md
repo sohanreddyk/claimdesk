@@ -1,0 +1,114 @@
+# Requirements matrix
+
+Every requirement in the assessment brief, the mechanism that meets it, and the evidence. Test
+references are `file::test_name` and are checked by `python scripts/check_matrix.py`, which also
+runs in `scripts/check_all.sh`, so a renamed or deleted test fails the build instead of leaving a
+stale claim. Paths are relative to `apps/insurance_claims/` (tests are in `tests/`).
+
+"Live" means checked by hand against a real model with the inspector's scenario buttons (the
+automated tests use a scripted model).
+
+## A. The workflow
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| A1 | An SOP harness for an insurance claims agent that follows a fixed workflow but converses naturally | A deterministic controller (`agent/controller.py`) runs the phases. The LLM only extracts facts and phrases replies. Every dialogue act has a template, so the agent is never stuck and works without a model. | `test_controller.py::test_the_agent_works_with_no_llm_at_all`; `test_process.py::test_no_api_key_still_answers_from_the_facts`; `test_acts_render.py` |
+| A2 | Four phases: VERIFY_ID -> RESOLVE_INTENT -> PROCESS_CASE -> POST_PROCESS | `Phase` and a guarded `set_phase` in `agent/state.py`. Only code changes the phase, and illegal moves raise. | `test_state.py::test_happy_path_transitions_are_audited`; `test_state.py::test_phases_cannot_be_skipped_or_reversed`; `test_state.py::test_allowed_back_edges_and_terminal_complete` |
+| A3 | Different steps need different levels of freedom | Strict code in VERIFY_ID, bounded interpretation in RESOLVE_INTENT, grounded answers in PROCESS_CASE, consent-gated POST_PROCESS (`docs/ARCHITECTURE.md` section 3). | rows B, C and D below |
+
+## B. VERIFY_ID (strict, but conversational)
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| B1 | Must not disclose claim details before verification | Claim data is never loaded or placed in a prompt before verification. The tool gateway re-checks `verified` on every call, and an output guard replaces any reply that leaks claim data. | `test_tools.py::test_unverified_session_cannot_reach_any_claim_data`; `test_verify.py::test_verification_never_reads_claim_data`; `test_understanding.py::test_no_claim_data_reaches_a_prompt_before_verification`; `test_controller.py::test_the_extraction_prompt_never_contains_claim_data`; `test_controller.py::test_a_demand_for_claim_details_gets_none_and_a_request`; `test_controller.py::test_a_reply_that_leaks_claim_data_is_replaced_and_audited` |
+| B2 | Must not advance until identity is verified on at least 3 PII items (full name, DOB, phone, email, SSN last 4) | Exact-match verification of three factors on one record (`agent/verify.py`). The policy number selects a candidate but never counts. A config below 3 is rejected at startup. | `test_verify.py::test_three_matching_factors_verify_the_policyholder`; `test_verify.py::test_two_matching_factors_do_not_verify`; `test_verify.py::test_any_three_of_five_factors_work`; `test_verify.py::test_policy_number_never_counts_as_a_factor`; `test_verify.py::test_factors_from_different_people_never_combine`; `test_verify.py::test_near_identical_phone_does_not_cross_verify`; `test_state.py::test_cannot_leave_verify_id_without_verification`; `test_state.py::test_mark_verified_needs_enough_matched_factors`; `test_config_clock.py::test_config_cannot_weaken_the_three_factor_gate` |
+| B3 | Handle clarification questions | "Why do you need this?" gets an explanation of why claim details are protected, then the next ask. | `test_controller.py::test_a_demand_for_claim_details_gets_none_and_a_request`; `test_controller.py::test_a_frustrated_caller_gets_empathy_the_reason_and_options_but_no_details` |
+| B4 | Handle partial answers | Factors accumulate across turns, and the agent asks only for what is still missing. | `test_controller.py::test_partial_answers_accumulate_then_a_bare_id_completes_verification`; `test_verify.py::test_factors_spread_across_turns`; `test_verify.py::test_refused_fields_are_not_requested_again` |
+| B5 | Handle refusals | Refusing one field offers alternatives and costs nothing. Refusing verification outright is answered once, then a human is offered. | `test_controller.py::test_refusing_one_field_offers_alternatives_without_a_strike`; `test_controller.py::test_refusing_verification_twice_offers_a_human_and_then_transfers`. Live: "SSN refusal" button |
+| B6 | Handle alternate identity fields | Any three of the five factors verify. Name, phone and email aliases are supported. A stated ID type (SSN or national ID) must agree with the stored type, without revealing it. | `test_verify.py::test_any_three_of_five_factors_work`; `test_verify.py::test_alias_name_verifies`; `test_verify.py::test_ma_tian_does_not_match_when_calling_it_an_ssn`; `test_verify.py::test_margaret_does_not_match_when_calling_it_a_national_id`; `test_verify.py::test_type_conflict_is_indistinguishable_from_wrong_digits` |
+| B7 | (Implied) Resist guessing and abuse | Replies mention only what was provided, never what matched. Wrong values lock automated verification and offer a human. A representative needs authorization and the policyholder's consent. | `test_verify.py::test_three_mismatches_lock_automated_verification`; `test_controller.py::test_three_wrong_values_lock_verification_and_offer_a_human`; `test_controller.py::test_a_listed_representative_is_verified_after_consent`; `test_controller.py::test_when_the_policyholder_does_not_approve_in_time_access_is_refused`; `test_verify.py::test_no_consent_request_before_three_factors_match`; `test_verify.py::test_audit_trail_contains_no_raw_pii` |
+
+## C. RESOLVE_INTENT and PROCESS_CASE (freer, still bounded)
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| C1 | The LLM can interpret messy user language | A deterministic pre-pass (formats, spoken digits and emails) plus LLM structured extraction. Model output is validated and grounded in the message before it is trusted. | `test_prepass.py::test_spoken_digit_runs_become_digits_but_lone_words_do_not`; `test_prepass.py::test_spoken_email_is_converted`; `test_understanding.py::test_margaret_message_is_understood`; `test_understanding.py::test_values_not_in_the_message_are_dropped`; `test_verify.py::test_formats_are_normalized` |
+| C2 | Resolve ambiguity | Hints are scored against only the verified caller's claims. One clear match is confirmed inline and is correctable. Otherwise one targeted question lists the options. | `test_resolve.py::test_all_three_hints_pick_the_one_denied_january_healthcare_claim`; `test_resolve.py::test_month_and_type_alone_are_ambiguous_across_years`; `test_resolve.py::test_a_denial_question_breaks_the_tie_toward_the_only_denied_claim`; `test_controller_switch.py::test_another_claim_with_no_details_lists_the_claims_and_asks_which`; `test_controller_documents.py::test_which_document_is_asked_when_it_is_unclear` |
+| C3 | Answer grounded follow-up questions | Code assembles labeled facts. Every number, date, amount, claim number and document name in a reply must appear in them. A bad reply is retried once with specific feedback, then replaced by a reply built straight from the facts. Deadline arithmetic is done by code from an injectable clock. | `test_grounding.py::test_unsupported_concrete_values_are_flagged`; `test_grounding.py::test_a_derived_amount_is_flagged_even_though_its_parts_are_real`; `test_process.py::test_an_unsupported_amount_gets_one_retry_with_feedback`; `test_process.py::test_two_ungrounded_answers_fall_back_to_the_facts`; `test_context.py::test_deadline_timing_is_computed_by_code_from_the_clock`; `test_context.py::test_derived_amounts_are_never_offered`; `test_controller_process.py::test_a_question_with_two_topics_is_answered_from_both`; `test_guidance.py::test_two_independent_topics_in_one_question_are_both_selected` |
+| C4 | Decide which bounded workflow path matches the caller's need | A closed intent set and a closed set of dialogue acts. Switching claims, missing documents, unsupported actions and escalation each follow a defined path with limits. | `test_controller_switch.py::test_switching_claims_answers_about_the_new_claim`; `test_controller_switch.py::test_the_fourth_switch_offers_a_human_instead`; `test_controller_documents.py::test_the_first_time_the_guideline_alternatives_are_given`; `test_controller_documents.py::test_the_second_time_for_the_same_document_goes_to_a_human`; `test_controller_documents.py::test_filing_an_appeal_is_declined_with_the_facts_and_a_human_offer` |
+| C5 | Answers come only from claim and tool data | Another party's claim is indistinguishable from a missing one, and a tampered case id fails closed. | `test_tools.py::test_another_partys_case_is_indistinguishable_from_a_missing_one`; `test_tools.py::test_verified_policyholder_sees_only_their_own_cases`; `test_controller_process.py::test_a_tampered_case_id_fails_closed_without_revealing_anything`; `test_controller_process.py::test_the_answer_prompt_has_this_claims_facts_and_no_identity_values` |
+
+## D. POST_PROCESS
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| D1 | Offer to send an email summary | When the caller is done, the agent offers a summary to the masked address on file, in the same turn. | `test_controller_email.py::test_thats_all_offers_the_summary_at_the_masked_address_on_file`; `test_controller_switch.py::test_thats_all_moves_to_the_closing_step_and_offers_the_summary` |
+| D2 | Summary covers what was discussed, the claim status or outcome, and the follow-up items or next steps | `agent/summary.py` builds the email from structured case data with a template. It contains no transcript, no LLM text and no identity values. It covers every claim discussed, with days remaining computed when it is built. | `test_summary.py::test_a_denied_claim_summary_has_status_topics_and_next_steps`; `test_summary.py::test_each_claim_discussed_gets_its_own_section_in_order`; `test_summary.py::test_missing_documents_and_the_human_review_option_are_mentioned_when_they_apply`; `test_summary.py::test_the_body_is_plain_text_with_no_addresses_or_phone_like_numbers`; `test_controller_email.py::test_an_explicit_yes_sends_the_summary_and_ends_the_session` |
+| D3 | The customer chooses to send or skip | Explicit yes sends, explicit no skips, and anything unclear asks again. Code decides: a bare "okay" and any question never count as a yes, even if the model says so. Nothing is sent otherwise. | `test_controller_email.py::test_an_explicit_no_skips_it`; `test_controller_email.py::test_a_bare_okay_is_not_consent_even_when_the_model_says_yes`; `test_controller_email.py::test_hedges_and_questions_never_send_whatever_the_model_or_outage_does`; `test_controller_email.py::test_with_the_llm_down_explicit_phrases_still_work`; `test_understanding.py::test_a_bare_okay_is_not_consent_even_if_the_model_says_yes` |
+| D4 | (Implied) Safe handling around the offer | A different address is read back and needs a second yes (policyholders only). A representative can only use the address on file. A failed send keeps the offer open. A new question returns to the claim. | `test_controller_email.py::test_a_different_address_is_read_back_and_needs_a_second_yes`; `test_controller_email.py::test_a_representative_can_only_use_the_address_on_file`; `test_controller_email.py::test_a_failed_send_keeps_the_offer_open_and_a_retry_works`; `test_controller_email.py::test_a_question_about_this_claim_returns_to_process_case_without_reconfirming_it`; `test_controller_email.py::test_with_no_address_on_file_the_agent_says_so_and_ends` |
+
+## E. Scope control
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| E1 | Limit answers to in-scope insurance customer-service questions | Every message is labeled in scope, general insurance, out of scope or an injection attempt. General insurance questions get a pointer without personal data. | `test_controller.py::test_a_general_insurance_question_is_answered_without_personal_data`; `test_controller.py::test_a_mixed_message_declines_the_off_topic_part_and_keeps_the_rest` |
+| E2 | Politely reject out-of-scope questions (for example "what is RL?") | A polite decline with a redirect, then a firmer one with examples of what the agent can do. Live: "Out-of-scope retries" button (weather question). | `test_controller.py::test_off_topic_questions_are_declined_then_a_human_is_offered` |
+| E3 | Ask to talk to a human if the caller keeps retrying | `MAX_OOS_STRIKES` repeats lead to a human offer. Two in-scope turns clear the strikes. Attempts to change the instructions are declined and never obeyed. | `test_controller.py::test_off_topic_questions_are_declined_then_a_human_is_offered`; `test_controller.py::test_two_in_scope_turns_clear_the_off_topic_strikes`; `test_controller.py::test_a_demand_for_claim_details_gets_none_and_a_request` |
+
+## F. Memory across phases
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| F1 | Remember useful information whenever it is said, even if it belongs to a later phase | `apply_understanding` (`agent/memory.py`) records intent, claim hints, role and refusals as they are heard. | `test_memory.py::test_everything_said_is_remembered_but_nothing_advances`; `test_memory.py::test_later_mentions_fill_in_without_erasing_earlier_ones`; `test_memory.py::test_corrections_overwrite_and_unchanged_values_are_not_recaptured` |
+| F2 | While in VERIFY_ID, store the intent and case hint without leaving the phase | Memory only records. It never changes phase, verifies anyone, or touches claims. | `test_memory.py::test_hints_alone_never_unlock_anything`; `test_controller.py::test_a_demand_for_claim_details_gets_none_and_a_request` |
+| F3 | Use the remembered information after verification | The remembered claim hints drive resolution, and a remembered question is answered once the claim is chosen. | `test_resolve.py::test_all_three_hints_pick_the_one_denied_january_healthcare_claim`; `test_controller_process.py::test_a_remembered_request_is_answered_once_the_claim_is_chosen` |
+
+## G. The demo test case (Margaret)
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| G1 | Extracts identity info and verifies the caller from the one message | The pre-pass and LLM extract the name, DOB, ID last four and policy number, and verification passes. | `test_controller.py::test_margaret_demo_is_verified_resolved_and_confirmed_in_one_turn`; `test_memory.py::test_margaret_demo_turn_understand_remember_verify`; `test_prepass.py::test_margaret_message_pre_pass`. Live: "Margaret demo" button |
+| G2 | Does not disclose claim details before verification | See B1. The first reply is produced only after verification passes, in the same turn. | rows B1 |
+| G3 | Remembers the denied-healthcare-January hint and uses it, instead of asking from scratch | The hints resolve to CL-2048 with no question asked, because healthcare plus January matches two claims and "denied" settles it. | `test_resolve.py::test_all_three_hints_pick_the_one_denied_january_healthcare_claim`; `test_controller.py::test_margaret_demo_is_verified_resolved_and_confirmed_in_one_turn` |
+| G4 | Answers naturally in PROCESS_CASE, only from grounded data | See C3. The model phrases and the guard enforces. | `test_process.py::test_a_denial_question_gets_the_reason_documents_and_deadline`; `test_controller_process.py::test_a_model_answer_carries_the_tone_note_instead_of_a_separate_acknowledgment` |
+| G5 | The LLM interprets and phrases, but the SOP controls phase order, safety gates and allowed actions | The model has no tools and cannot set phase or identity. Its structured output is only a proposal that code validates. | `test_state.py::test_cannot_leave_verify_id_without_verification`; `test_understanding.py::test_the_llm_cannot_set_the_id_kind`; `test_controller_documents.py::test_an_action_request_is_declined_even_with_the_llm_down` |
+| G6 | Conversational without becoming a free-form chatbot | Strict where the SOP demands, bounded and grounded elsewhere, memory-aware throughout. | the full API run-through: `test_api.py::test_margaret_demo_end_to_end_over_http_including_the_email` |
+
+## H. Bonus: emotional support and SOP recovery
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| H1 | Recognize frustration, anxiety, anger, confusion or refusal | The extractor labels the emotion and its severity per turn, and refusal is a separate signal. | `test_memory.py::test_emotion_is_recorded_per_turn`; `test_controller.py::test_refusing_one_field_offers_alternatives_without_a_strike` |
+| H2 | Empathy and de-escalation before pushing the workflow | An acknowledgment comes first in the reply, then the next step. When the model writes the answer, the tone note is part of its prompt. | `test_controller.py::test_a_frustrated_caller_gets_empathy_the_reason_and_options_but_no_details`; `test_controller_process.py::test_a_model_answer_carries_the_tone_note_instead_of_a_separate_acknowledgment`; `test_controller_process.py::test_a_facts_only_answer_keeps_the_separate_acknowledgment` |
+| H3 | Explain why SOP steps matter, especially verification and consent | Verification: the reply says claim details are protected until identity is verified. Email: "For privacy, I can only send it to the address on file." Representative consent: partly (see the notes at the end). | `test_controller.py::test_a_frustrated_caller_gets_empathy_the_reason_and_options_but_no_details`; `test_controller_email.py::test_a_representative_can_only_use_the_address_on_file` |
+| H4 | Persuade the caller to continue without bypassing the gates | The agent explains, offers alternatives, and keeps asking for one next step. It never skips verification. | `test_controller.py::test_a_frustrated_caller_gets_empathy_the_reason_and_options_but_no_details`; `test_controller.py::test_repeated_anger_escalates_to_a_human_offer_without_dropping_the_gate`. Live: "Frustrated caller" button |
+| H5 | Offer acceptable alternatives, such as different ID fields or a human | `OFFER_ALT_FIELDS` names the other accepted fields. A human can be requested at any time. | `test_controller.py::test_refusing_one_field_offers_alternatives_without_a_strike`; `test_controller.py::test_an_explicit_request_for_a_human_transfers_immediately`; `test_understanding.py::test_a_request_for_a_human_does_not_depend_on_the_llm` |
+| H6 | Know when to stop persuading and escalate | Limits in config: refusals, mismatches, repeated anger, out-of-scope strikes, consent timeouts, exhausted document alternatives, and distress. A "yes" transfers only when a human was just offered. | `test_controller.py::test_refusing_verification_twice_offers_a_human_and_then_transfers`; `test_controller.py::test_three_wrong_values_lock_verification_and_offer_a_human`; `test_controller.py::test_repeated_anger_escalates_to_a_human_offer_without_dropping_the_gate`; `test_controller.py::test_distress_ends_the_automated_session_with_empathy`; `test_controller.py::test_a_yes_is_only_a_transfer_when_a_human_was_just_offered`; `test_controller.py::test_a_party_with_no_claims_is_offered_a_human` |
+| H7 | The example: "I already told you who I am. This is ridiculous. Just tell me why my claim was denied." | Acknowledge the frustration, explain that claim details are protected until verification, offer the accepted verification options, and disclose nothing. | `test_controller.py::test_a_frustrated_caller_gets_empathy_the_reason_and_options_but_no_details`. Live: "Frustrated caller" button |
+
+## I. Delivery
+
+| # | Brief | How it is met | Evidence |
+|---|---|---|---|
+| I1 | A Docker image or repo with clear setup instructions | `Dockerfile`, `docker-compose.yml` and `README.md` (quick start: copy `.env.example`, set the key, `docker compose up --build`). The packaged image is exercised by a smoke script. | `scripts/docker_smoke.sh`; `scripts/docker_smoke_checks.py`; `scripts/check_all.sh` |
+| I2 | Setup must accept an API auth token for calling an AI model | `LLM_API_KEY` from the environment or `.env`, for Anthropic or OpenAI. A wrong provider and model pairing is reported clearly. The health endpoint reports whether a key is configured, never the key. | `test_llm_clients.py::test_factory_with_a_key_returns_the_anthropic_client`; `test_llm_clients.py::test_factory_returns_the_openai_client_for_the_openai_provider`; `test_llm_clients.py::test_openai_provider_with_the_default_claude_model_names_says_what_to_change`; `test_api.py::test_health_reports_llm_configuration_without_exposing_the_key`; `scripts/smoke_llm.py` |
+| I3 | A simple test UI to text with the agent | A React chat UI served by the API on one port, with the evaluator inspector and scenario buttons when enabled. | `ui/src/App.test.tsx`; `ui/src/Inspector.test.tsx`; `test_api.py::test_the_ui_is_served_only_when_a_build_exists` |
+| I4 | The demo shows the full workflow: verification, intent resolution, claim processing and post-case follow-up | The "Margaret demo" button, then follow-up questions, "that's all", and the email. The inspector shows each phase as it happens. | `test_api.py::test_margaret_demo_end_to_end_over_http_including_the_email`; `test_api.py::test_the_debug_view_masks_every_identity_value_and_shows_the_workings` |
+| I5 | (Implied) The sample data drives the system | The code is data-driven from the fixtures, which are unmodified, and `FIXTURES_DIR` is configurable. | `test_fixtures.py`; `test_guidance.py::test_document_names_match_guideline_keys` |
+
+## Notes: where this is partial or deliberately limited
+
+- **Representative consent (H3).** The agent explains why verification matters. For a representative
+  it reports the approval's outcome ("approved", "didn't arrive in time") but does not explain up
+  front why the policyholder's approval is needed.
+- **Hosted demo (I1).** There is no hosted URL. The brief allows a Docker image or repo with setup
+  instructions instead.
+- **API token entry (I2).** The token is supplied at setup through the environment or `.env`; there
+  is no field for it in the UI.
+- **The email is simulated (D1 to D4).** "Sending" writes to a visible in-memory outbox. There is no SMTP.
+- **Grounding limits (C3).** The guard checks literals. A durations-in-words claim or a reason with
+  no literal in it can pass. These are pinned by `test_grounding.py::test_known_limit_durations_in_words_are_not_caught` and
+  `test_grounding.py::test_known_limit_an_invented_reason_with_no_literals_is_not_caught`, and
+  limited by prompt rules and the bounded fact set.
+- **Live model behavior** is checked by hand with the scenario buttons and `scripts/smoke_llm.py`,
+  not by automated tests.
