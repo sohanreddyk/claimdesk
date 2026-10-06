@@ -205,6 +205,18 @@ class FixtureStore:
         """Topic names from the follow-up guidance: the closed set the LLM may choose from."""
         return [rule.topic for rule in self.guidelines.claim_followup_guidance]
 
+    def document_vocabulary(self) -> list[str]:
+        """Every document name the data knows (claims and guidelines), lowercased. Lets the
+        output guard spot a document mentioned in a reply that is not part of this claim."""
+        names = {doc.casefold() for case in self._cases for doc in case.documents_needed}
+        names.update(key.casefold() for key in self.guidelines.document_guidance)
+        names.update(
+            key.casefold()
+            for key in self.guidelines.document_alternative_guidance
+            if key != "default"
+        )
+        return sorted(names)
+
     # ---- cases -------------------------------------------------------------------
 
     def all_cases(self) -> list[Case]:

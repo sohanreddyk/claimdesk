@@ -131,6 +131,18 @@ def test_policy_prefixes_and_followup_topics(store):
     ]
 
 
+def test_document_vocabulary_covers_claims_and_guidelines(store):
+    assert store.document_vocabulary() == [
+        "diagnosis report",
+        "office note",
+        "original pathology report",
+        "pathology report",
+        "repair estimate",
+        "supplemental accident scene photos",
+        "treating provider office note",
+    ]
+
+
 # ---- resilience to swapped fixtures ----------------------------------------------
 
 

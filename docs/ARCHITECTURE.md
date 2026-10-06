@@ -232,7 +232,17 @@ Rules:
 
 ### Grounding guard (code, post-render)
 
-Every amount (Decimal-compared; `$1,450` == `1450.00`), date (ISO-normalized), case ID and document name in the reply must appear in the context pack. Fail -> regenerate once with feedback -> template built from facts. `facts_used` must be a subset of context fact IDs.
+Two complementary checks, both in plain code (`agent/grounding.py`):
+
+1. **Literal grounding (enforcement).** Every claim number, date, amount, day count and document name in the reply must be supported by a fact, after normalization (`$1,450` = `1450.00` = `1,450 dollars`; `March 18, 2026` = `3/18/2026` = `2026-03-18`). Any other number left over is also flagged, so an invented "30 days to appeal" cannot pass as a stray digit. A date written without a year is accepted only if exactly one date in the facts has that month and day; with none or several it is a violation, and the guard never supplies a year to make a reply pass.
+2. **Fact references (provenance).** The model returns `{reply, facts_used}`. Code checks only that every cited id is a real fact id. This is coarse provenance and debugging visibility, not proof that a sentence is correct, and it is not treated as a security boundary.
+
+Failure -> regenerate once with the guard's specific feedback -> template built from the facts.
+
+**Known limits** (covered by prompt rules and the bounded context, not by the guard; each is pinned by a test):
+- Durations in words have no digits to check: "within a week", "thirty days", "a couple of days".
+- A claim about *why* or *what* with no literal in it ("denied because the provider used the wrong billing code") passes, and citing a real fact does not prevent it. The Tier 2 live scenarios probe this.
+- Document names are recognized only from the vocabulary the data contains.
 
 ## 11. Scope guard
 
