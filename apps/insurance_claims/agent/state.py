@@ -92,7 +92,8 @@ class CaseRecord(BaseModel):
     topics_discussed: list[str] = []
     documents_needed: list[str] = []
     appeal_deadline: date | None = None
-    follow_ups: list[str] = []
+    unavailable_documents: list[str] = []  # documents the caller said they cannot get
+    human_review_offered: bool = False  # alternatives ran out and a human was offered
     facts_used: list[str] = []
 
 
