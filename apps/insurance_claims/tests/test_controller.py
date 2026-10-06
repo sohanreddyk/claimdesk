@@ -153,6 +153,51 @@ async def test_partial_answers_accumulate_then_a_bare_id_completes_verification(
     assert third.phase == Phase.PROCESS_CASE and state.resolved_case_id == "CL-2048"
 
 
+async def test_a_hint_given_during_verification_is_used_once_verified(make_agent):
+    """The brief's own example: the caller mentions the denied January claim before verification
+    is complete. The agent stays in VERIFY_ID and remembers it, then uses it afterwards."""
+    agent, llm = make_agent()
+    state = agent.new_state("s1")
+
+    first = await say(
+        agent,
+        llm,
+        state,
+        "Hi, I'm Margaret Chen. I'm calling about my denied healthcare claim from January.",
+        {
+            "full_name": "Margaret Chen",
+            "intents": ["denial_question"],
+            "hint_case_type": "healthcare",
+            "hint_status": "denied",
+            "hint_month": 1,
+        },
+    )
+    # Still verifying: nothing is disclosed and no claim data is touched, but it is remembered.
+    assert first.phase == Phase.VERIFY_ID and not state.verified
+    assert K.REQUEST_FIELDS in kinds(first) and K.CONFIRM_CLAIM not in kinds(first)
+    assert all(e.type != "TOOL_CALL" for e in state.events)
+    for text in CLAIM_STRINGS:
+        assert text not in first.reply
+    assert state.intent_hint == "denial_question"
+    hints = state.case_hints
+    assert (hints.case_type, hints.status, hints.month) == ("healthcare", "denied", 1)
+
+    # The rest of the identity arrives. The remembered hints pick the claim, so no question is
+    # asked, and the remembered request is answered instead of asking what the caller wants.
+    second = await say(
+        agent, llm, state, "DOB is 1985-03-15, SSN last four is 4472.", {}
+    )
+    assert kinds(second) == [
+        K.VERIFIED_OK,
+        K.CONFIRM_CLAIM,
+        K.ANSWER_FROM_FACTS,
+        K.ASK_ANYTHING_ELSE,
+    ]
+    assert second.phase == Phase.PROCESS_CASE and state.resolved_case_id == "CL-2048"
+    assert "CL-2048" in second.reply
+    assert state.intent_hint is None  # the remembered question has been answered
+
+
 async def test_a_frustrated_caller_gets_empathy_the_reason_and_options_but_no_details(make_agent):
     agent, llm = make_agent()
     state = agent.new_state("s1")
@@ -179,6 +224,31 @@ async def test_a_frustrated_caller_gets_empathy_the_reason_and_options_but_no_de
     ask = act_of(result, K.REQUEST_FIELDS).data
     assert ask["fields"] == ["phone", "email", "id_last4"]  # never asks again for what it has
     assert result.phase == Phase.VERIFY_ID and not state.verified
+    for text in CLAIM_STRINGS:
+        assert text not in result.reply
+
+
+@pytest.mark.parametrize(
+    ("emotion", "message", "wording"),
+    [
+        ("anxious", "I'm really worried about my claim. What is going on?", "worrying"),
+        ("confused", "I don't understand any of this. What do you need from me?", "confusing"),
+    ],
+)
+async def test_an_anxious_or_confused_caller_gets_empathy_and_the_gate_stays_closed(
+    make_agent, emotion, message, wording
+):
+    agent, llm = make_agent()
+    state = agent.new_state("s1")
+    result = await say(agent, llm, state, message, {"emotion": emotion, "severity": 2})
+
+    assert kinds(result)[0] == K.ACK_EMOTION  # empathy comes before the workflow
+    assert act_of(result, K.ACK_EMOTION).data["emotion"] == emotion
+    assert wording in result.reply
+    assert K.EXPLAIN_WHY_VERIFY in kinds(result) and K.REQUEST_FIELDS in kinds(result)
+    assert result.phase == Phase.VERIFY_ID and not state.verified
+    assert state.frustration_streak == 0  # worry and confusion are not anger: no escalation clock
+    assert all(e.type != "TOOL_CALL" for e in state.events)
     for text in CLAIM_STRINGS:
         assert text not in result.reply
 
