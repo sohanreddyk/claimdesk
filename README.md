@@ -1,4 +1,7 @@
-# Insurance Claims SOP Agent
+# ClaimDesk
+
+**Guided insurance claims support.** An insurance claims SOP agent: a conversational support
+assistant that follows a fixed business workflow.
 
 A conversational insurance claims support agent that follows a fixed four-phase SOP while still
 talking naturally:
@@ -53,10 +56,15 @@ templates. Understanding free-form language (names, intent, emotion, scope) need
 
 ### Try it
 
-With the inspector on, the right-hand pane shows the agent's workings and a set of scenario
-buttons. A button starts a fresh conversation and fills the message box; press **Send** to run it.
+With the inspector on, the right-hand pane (the "SOP inspector", marked evaluator-only) shows the
+agent's workings as structured sections: Workflow, Identity, Current Case, Remembered Context,
+Safety and Activity, with the raw internals collapsed under Technical details. The overflow menu
+(the ⋯ button in the top bar) holds the **Demo scenarios**: choosing one starts a fresh conversation
+and fills the message box; press **Send** to run it. Answers read from the claim record are marked
+"Grounded in claim record". On narrow screens the inspector opens from a "Workflow inspector"
+button.
 
-| Button | What it shows |
+| Scenario | What it shows |
 |---|---|
 | Margaret demo | Verification from a single message, then the denial explained |
 | Frustrated caller | Acknowledges the frustration, then verifies; repeated anger offers a human |
@@ -119,9 +127,9 @@ Margaret's single opening message passes through the first three phases in one t
 
 ### The inspector (evaluators only)
 
-`ENABLE_DEBUG_INSPECTOR=true` enables `GET /api/session/{id}/debug`, the API docs, the scenario
-buttons and the inspector pane (phase, masked factors, consent trail, memory, dialogue acts, tool
-calls, audit events, outbox). Everything in it is masked. With it off (the code default) the
+`ENABLE_DEBUG_INSPECTOR=true` enables `GET /api/session/{id}/debug`, the API docs, the Demo
+scenarios menu and the SOP inspector (workflow, identity, current claim, remembered context,
+safety, activity, and a collapsed technical-details section). Everything in it is masked. With it off (the code default) the
 endpoint returns 404 and no internals appear in any customer-facing response: `/api/chat` returns
 only `{reply, ended}`, enforced server-side.
 
@@ -178,8 +186,8 @@ python scripts/smoke_llm.py               # live check of your LLM key and model
   verification.
 - **Requirements matrix** (`scripts/check_matrix.py`): fails if any test or file named in
   `docs/requirements-matrix.md` no longer exists, so the matrix cannot go stale.
-- **UI** (Vitest and React Testing Library, 27 tests): chat behavior, error handling, inspector
-  rendering and scenario buttons.
+- **UI** (Vitest and React Testing Library, about 100 tests): the conversation, error handling, the
+  SOP inspector and its view-model adapters, the scenario menu, the drawer and the grounded indicator.
 - **Docker smoke test** (`scripts/docker_smoke.sh`): builds the image (running the Python suite on
   the image's Python 3.12), starts the packaged app, and checks the contents (non-root user, no
   `.env`/tests/sources), the served UI, the greeting, that chat exposes only `reply` and `ended`,

@@ -5,8 +5,8 @@ references are `file::test_name` and are checked by `python scripts/check_matrix
 runs in `scripts/check_all.sh`, so a renamed or deleted test fails the build instead of leaving a
 stale claim. Paths are relative to `apps/insurance_claims/` (tests are in `tests/`).
 
-"Live" means checked by hand against a real model with the inspector's scenario buttons (the
-automated tests use a scripted model).
+"Live" means checked by hand against a real model with the inspector's Demo scenarios menu (the
+"buttons" named in the rows below are its items; the automated tests use a scripted model).
 
 ## A. The workflow
 
@@ -92,7 +92,7 @@ automated tests use a scripted model).
 |---|---|---|---|
 | I1 | A Docker image or repo with clear setup instructions | `Dockerfile`, `docker-compose.yml` and `README.md` (quick start: copy `.env.example`, set the key, `docker compose up --build`). The packaged image is exercised by a smoke script. | `scripts/docker_smoke.sh`; `scripts/docker_smoke_checks.py`; `scripts/check_all.sh` |
 | I2 | Setup must accept an API auth token for calling an AI model | `LLM_API_KEY` from the environment or `.env`, for Anthropic or OpenAI. A wrong provider and model pairing is reported clearly. The health endpoint reports whether a key is configured, never the key. | `test_llm_clients.py::test_factory_with_a_key_returns_the_anthropic_client`; `test_llm_clients.py::test_factory_returns_the_openai_client_for_the_openai_provider`; `test_llm_clients.py::test_openai_provider_with_the_default_claude_model_names_says_what_to_change`; `test_api.py::test_health_reports_llm_configuration_without_exposing_the_key`; `scripts/smoke_llm.py` |
-| I3 | A simple test UI to text with the agent | A React chat UI served by the API on one port, with the evaluator inspector and scenario buttons when enabled. | `ui/src/App.test.tsx`; `ui/src/Inspector.test.tsx`; `test_api.py::test_the_ui_is_served_only_when_a_build_exists` |
+| I3 | A simple test UI to text with the agent | A React console UI served by the API on one port: a customer conversation, plus the SOP inspector and an overflow menu of demo scenarios when the inspector is enabled. | `ui/src/App.test.tsx`; `ui/src/Inspector.test.tsx`; `test_api.py::test_the_ui_is_served_only_when_a_build_exists` |
 | I4 | The demo shows the full workflow: verification, intent resolution, claim processing and post-case follow-up | The "Margaret demo" button, then follow-up questions, "that's all", and the email. The inspector shows each phase as it happens. | `test_api.py::test_margaret_demo_end_to_end_over_http_including_the_email`; `test_api.py::test_the_debug_view_masks_every_identity_value_and_shows_the_workings` |
 | I5 | (Implied) The sample data drives the system | The code is data-driven from the fixtures, which are unmodified, and `FIXTURES_DIR` is configurable. | `test_fixtures.py`; `test_guidance.py::test_document_names_match_guideline_keys` |
 
