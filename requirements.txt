@@ -1,7 +1,10 @@
+# Runtime dependencies. Each has a floor and a ceiling at the next major version, so a build months
+# from now cannot silently pick up a breaking release. The suite passed against: fastapi 0.142,
+# uvicorn 0.54, pydantic 2.13, anthropic 1.11, openai 3.24, python-dateutil 2.9, python-dotenv 1.2.
 fastapi>=0.110,<1.0
-uvicorn>=0.29
+uvicorn>=0.29,<1.0
 pydantic>=2.12,<3
-anthropic>=0.40
-openai>=1.60
-python-dateutil>=2.9
-python-dotenv>=1.0
+anthropic>=0.40,<2.0
+openai>=1.60,<4.0
+python-dateutil>=2.9,<3.0
+python-dotenv>=1.0,<2.0

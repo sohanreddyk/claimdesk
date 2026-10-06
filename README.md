@@ -1,10 +1,7 @@
 # ClaimDesk
 
-**Guided insurance claims support.** An insurance claims SOP agent: a conversational support
-assistant that follows a fixed business workflow.
-
-A conversational insurance claims support agent that follows a fixed four-phase SOP while still
-talking naturally:
+**Guided insurance claims support.** A conversational insurance claims agent that follows a fixed
+four-phase SOP while still talking naturally:
 
 ```
 VERIFY_ID  ->  RESOLVE_INTENT  ->  PROCESS_CASE  ->  POST_PROCESS
@@ -186,7 +183,7 @@ python scripts/smoke_llm.py               # live check of your LLM key and model
   verification.
 - **Requirements matrix** (`scripts/check_matrix.py`): fails if any test or file named in
   `docs/requirements-matrix.md` no longer exists, so the matrix cannot go stale.
-- **UI** (Vitest and React Testing Library, about 100 tests): the conversation, error handling, the
+- **UI** (Vitest and React Testing Library, about 120 tests): the conversation, error handling, the
   SOP inspector and its view-model adapters, the scenario menu, the drawer and the grounded indicator.
 - **Docker smoke test** (`scripts/docker_smoke.sh`): builds the image (running the Python suite on
   the image's Python 3.12), starts the packaged app, and checks the contents (non-root user, no
@@ -215,7 +212,8 @@ Python 3.12 is what the Docker image runs; development was done on 3.14. The UI 
 ```
 Dockerfile  docker-compose.yml  .env.example  requirements*.txt  pyproject.toml
 docs/ARCHITECTURE.md
-scripts/   check_all.sh  docker_smoke.sh  docker_smoke_checks.py  smoke_llm.py  package.sh
+scripts/   check_all.sh  check_matrix.py  clean_room.sh  docker_smoke.sh  docker_smoke_checks.py
+           smoke_llm.py  package.sh
 apps/insurance_claims/
   fixtures/        the starter data, unmodified
   agent/           the SOP engine
@@ -246,5 +244,15 @@ apps/insurance_claims/
   that states a reason with no literal in it can pass the guard; prompt rules and the bounded
   fact set cover that gap, and the known cases are pinned by tests.
 - Consent for representatives is a fixture-driven simulation, not a real notification system.
+- **What the LLM provider sees.** The caller's own messages, including any identity details they
+  type, are sent to the configured provider so it can extract fields and intent. What is never
+  sent: stored identity values (the extraction prompt carries field names only), and any claim
+  data before verification. After verification, a claim answer's prompt holds only the verified
+  caller's own claim facts, with identity values blanked out.
+- **Which provider was exercised live.** The live wording and extraction checks during development
+  used OpenAI (`gpt-5.4-mini`). The Anthropic adapter, the default provider, is covered by unit
+  tests against a fake client; run `python scripts/smoke_llm.py` with your key to check it live.
+- **Dependencies** are bounded to the next major version (`requirements*.txt`) but not locked
+  exactly, apart from the UI's `package-lock.json`.
 - Where the built system differs from the frozen design (for example, no in-UI key field and no
   send/skip chips), the "as built" section at the end of `docs/ARCHITECTURE.md` says so.
