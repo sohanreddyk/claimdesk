@@ -28,7 +28,11 @@ if they ask why identity details are needed.
 - intents (zero or more): status_inquiry (state of the claim), denial_question (why it was \
 denied, what a denial means), document_submission (which documents, or how, where and in what \
 format to send them), next_steps (what to do next, appeals, timing), general_claim_question \
-(any other question about their claim).
+(any other question about their claim). Set an intent only for what the customer actually asks \
+or wants in THIS message, and choose the one or two that fit best rather than listing several. \
+If the message only answers the agent's own question (for example picks one claim from a list \
+the agent just gave), leave intents empty. "I'm calling about my denied claim" with nothing \
+more means denial_question.
 - hint_case_type: the kind of claim in the caller's own words (for example healthcare, dental, \
 auto). hint_status: denied (rejected, turned down), closed (settled, paid, completed) or open \
 (pending, in progress, ongoing). hint_month: 1-12. hint_year: only if a year was stated. \

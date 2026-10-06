@@ -441,7 +441,11 @@ class SopAgent:
             state.case_record.status_outcome = case.status
             state.set_phase(Phase.PROCESS_CASE, "case resolved")
             state.last_expected_fields = []
-            return _Outcome([act(ActKind.CONFIRM_CLAIM, case=case_option(case))], advance=True)
+            representative = state.verified_as == "representative"
+            confirm = act(
+                ActKind.CONFIRM_CLAIM, case=case_option(case), representative=representative
+            )
+            return _Outcome([confirm], advance=True)
         if resolution.kind == "no_claims":
             return _Outcome([act(ActKind.NO_CLAIMS_FOUND), self._offer_human(state, "no_claims")])
         state.last_expected_fields = []
@@ -755,7 +759,7 @@ class SopAgent:
                 return _Outcome(
                     [
                         act(ActKind.EMAIL_ADDRESS_LOCKED, reason=reason),
-                        self._email_offer(state, on_file),
+                        self._email_offer(state, on_file, brief=True),
                     ]
                 )
             state.email_address = candidate
@@ -810,12 +814,13 @@ class SopAgent:
         self._complete(state, "no email address on file")
         return _Outcome([act(ActKind.EMAIL_UNAVAILABLE), act(ActKind.GOODBYE)])
 
-    def _email_offer(self, state: State, on_file: str) -> Act:
+    def _email_offer(self, state: State, on_file: str, *, brief: bool = False) -> Act:
         target = state.email_address or on_file
         return act(
             ActKind.OFFER_EMAIL_SUMMARY,
             masked=mask_email(target),
             restricted=self._email_restricted(state),
+            brief=brief,  # right after the privacy notice, so the offer need not repeat it
         )
 
     def _email_restricted(self, state: State) -> bool:

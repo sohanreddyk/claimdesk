@@ -213,9 +213,15 @@ def describe(a: Act) -> str:
     if kind == ActKind.VERIFIED_OK:
         return "Tell the caller they are verified. Greet them by first name if one is provided."
     if kind == ActKind.CONFIRM_CLAIM:
+        whose = (
+            " The caller is a representative, so call it 'the claim', not 'your claim'."
+            if d.get("representative")
+            else ""
+        )
         return (
             f"Tell the caller which claim you found, using only these facts: "
             f"{case_phrase(d['case'])}. Invite them to correct you if it is the wrong claim."
+            f"{whose}"
         )
     if kind == ActKind.ASK_DISAMBIGUATION:
         options = "; ".join(case_phrase(c) for c in d["options"])

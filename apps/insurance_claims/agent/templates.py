@@ -115,7 +115,9 @@ def template(a: Act) -> str:
     if kind == ActKind.VERIFIED_OK:
         return "Thank you, you're verified."
     if kind == ActKind.CONFIRM_CLAIM:
-        return f"I found your {case_phrase(d['case'])}. Let me know if that's not the one."
+        # A representative is calling about someone else's claim, so it is not "your" claim.
+        owner = "the" if d.get("representative") else "your"
+        return f"I found {owner} {case_phrase(d['case'])}. Let me know if that's not the one."
     if kind == ActKind.ASK_DISAMBIGUATION:
         options = "; ".join(case_phrase(c) for c in d["options"])
         lead = (
@@ -168,6 +170,11 @@ def template(a: Act) -> str:
     if kind == ActKind.ASK_WHICH_DOCUMENT:
         return f"Which of these documents are you unable to get: {join_words(d['options'], 'or')}?"
     if kind == ActKind.OFFER_EMAIL_SUMMARY:
+        if d.get("brief"):  # straight after a "only the address on file" notice: no repeat
+            return (
+                f"Would you like me to email the summary to {d['masked']}? "
+                "You can say yes, or skip it."
+            )
         base = f"Would you like me to email a summary of what we discussed to {d['masked']}?"
         if d.get("restricted"):
             return (

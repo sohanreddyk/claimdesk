@@ -252,6 +252,7 @@ async def test_after_two_rejected_alternatives_only_the_address_on_file_is_offer
     )
     assert kinds(result) == [K.EMAIL_ADDRESS_LOCKED, K.OFFER_EMAIL_SUMMARY]
     assert "For privacy, I can only send the summary to the address on file." in result.reply
+    assert result.reply.count("For privacy") == 1
     assert state.email_state == EmailState.OFFERED and outbox.sent() == []
 
     await say(agent, llm, state, "yes", YES)
@@ -281,8 +282,10 @@ async def test_a_representative_can_only_use_the_address_on_file(make_agent):
         {"caller_role": "representative", "rep_name": "David Chen", "rep_relationship": "son"}
     )
     await agent.handle(state, rep_message)
-    await agent.handle(state, "CL-2048")  # picks the claim by number, no LLM needed
+    picked = await agent.handle(state, "CL-2048")  # picks the claim by number, no LLM needed
     assert state.verified_as == "representative" and state.resolved_case_id == "CL-2048"
+    assert "I found the healthcare claim CL-2048" in picked.reply  # it is not their claim
+    assert "I found your" not in picked.reply
 
     first = await offer(agent, llm, state)
     assert kinds(first) == [K.OFFER_EMAIL_SUMMARY] and ON_FILE in first.reply
@@ -296,6 +299,7 @@ async def test_a_representative_can_only_use_the_address_on_file(make_agent):
         {"alt_email": "david@example.com"},
     )
     assert kinds(other) == [K.EMAIL_ADDRESS_LOCKED, K.OFFER_EMAIL_SUMMARY]
+    assert other.reply.count("For privacy") == 1  # the notice is not repeated by the offer
     assert state.email_state == EmailState.OFFERED
 
     await say(agent, llm, state, "yes", YES)
