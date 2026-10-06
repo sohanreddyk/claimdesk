@@ -19,10 +19,13 @@ export interface Conversation {
   /** The conversation is over (finished, or the session expired). */
   ended: boolean;
   error: string | null;
+  /** Bumped after a session opens and after every turn settles: the cue to refresh the
+   * inspector. */
+  revision: number;
   send: () => Promise<void>;
   /** Begin a new session. The optional consent scenario only has an effect when the server's
-   * inspector is on. */
-  start: (consentScenario?: string) => Promise<void>;
+   * inspector is on. Resolves true when the session opened and is still the current one. */
+  start: (consentScenario?: string) => Promise<boolean>;
 }
 
 /**
@@ -37,7 +40,7 @@ export function useConversation(): Conversation {
   const [starting, setStarting] = useState(true);
   const [ended, setEnded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  const [revision, setRevision] = useState(0);
   // Bumped whenever a new session begins, so a slow response from an old session can never be
   // added to the new transcript.
   const generation = useRef(0);
@@ -55,12 +58,15 @@ export function useConversation(): Conversation {
     setInput("");
     try {
       const session = await createSession(consentScenario);
-      if (gen !== generation.current) return;
+      if (gen !== generation.current) return false;
       setSessionId(session.session_id);
       setMessages([{ id: nextId.current++, role: "assistant", text: session.greeting }]);
+      setRevision((r) => r + 1);
+      return true;
     } catch (err) {
-      if (gen !== generation.current) return;
+      if (gen !== generation.current) return false;
       setError(errorText(statusOf(err)));
+      return false;
     } finally {
       if (gen === generation.current) setStarting(false);
     }
@@ -104,9 +110,24 @@ export function useConversation(): Conversation {
         setInput((current) => current || text);
       }
     } finally {
-      if (gen === generation.current) setBusy(false);
+      if (gen === generation.current) {
+        setBusy(false);
+        setRevision((r) => r + 1);
+      }
     }
   }, [input, busy, ended, starting, sessionId]);
 
-  return { sessionId, messages, input, setInput, busy, starting, ended, error, send, start };
+  return {
+    sessionId,
+    messages,
+    input,
+    setInput,
+    busy,
+    starting,
+    ended,
+    error,
+    revision,
+    send,
+    start,
+  };
 }

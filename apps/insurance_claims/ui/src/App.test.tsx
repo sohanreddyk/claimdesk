@@ -3,26 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { type Handler, json, mockFetch } from "./testUtils";
 
 const GREETING = "Hi, I’m the insurance claims support assistant. Please share your full name.";
 
-type Handler = (url: string, init?: RequestInit) => Response | Promise<Response>;
 type User = ReturnType<typeof userEvent.setup>;
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function mockFetch(handler: Handler) {
-  const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
-    Promise.resolve(handler(String(input), init)),
-  );
-  vi.stubGlobal("fetch", fn);
-  return fn;
-}
 
 /** A server that opens sessions normally and answers chat with `chat` (default: a plain "ok"). */
 function api(chat?: Handler): Handler {
@@ -198,7 +183,8 @@ describe("when the conversation ends", () => {
           greeting: sessions === 1 ? GREETING : "A fresh start.",
         });
       }
-      return json({ reply: "Goodbye.", ended: true });
+      if (url === "/api/chat") return json({ reply: "Goodbye.", ended: true });
+      return json({ detail: "not found" }, 404);
     });
     const user = await open();
 
