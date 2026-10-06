@@ -20,14 +20,41 @@ the brief to the mechanism that meets it and the tests that prove it.
 
 ## Quick start (Docker)
 
-Needs Docker only.
+You need Docker (Docker Desktop on macOS or Windows, or Docker Engine with the Compose plugin on
+Linux) and an API key for Anthropic or OpenAI. Nothing else has to be installed.
+
+**1. Create your settings file.** In the repository folder:
 
 ```bash
-cp .env.example .env        # then edit .env: see "Choosing an LLM" below
+cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
+```
+
+**2. Add your API key.** Open `.env` in any text editor and paste the key after `LLM_API_KEY=` (no
+quotes). With an Anthropic key, that is the only change. With an OpenAI key, also change these three
+lines, because the model names must belong to the provider (see [Choosing an LLM](#choosing-an-llm)):
+
+```
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-5.4-mini
+LLM_MODEL_FAST=gpt-5.4-mini
+```
+
+**3. Start it.**
+
+```bash
 docker compose up --build
 ```
 
-Open <http://127.0.0.1:8000>. One container serves the API and the UI on one port.
+The first build takes a minute or two (it builds the UI and installs the Python dependencies). Later
+starts take seconds. It is ready when the log shows `Application startup complete`.
+
+**4. Check that the key was read.** Open <http://127.0.0.1:8000/api/health>. `"llm_configured": true`
+means the key was picked up. If it says `false`, the key is blank or misspelled: fix `.env`, press
+Ctrl+C, and run `docker compose up --force-recreate`.
+
+**5. Use it.** Open <http://127.0.0.1:8000>. One container serves the API and the UI on one port.
+See [Try it](#try-it) below for a suggested walkthrough. To stop, press Ctrl+C and then run
+`docker compose down`.
 
 `.env.example` ships an **evaluator profile**: the workflow inspector and scenario buttons are on,
 and "today" is fixed to 2026-03-05 so the sample appeal deadlines are live (CL-2048's deadline,
@@ -43,13 +70,31 @@ Set these in `.env`. The model names must belong to the provider you choose.
 | Anthropic (default) | `anthropic` | `claude-sonnet-5-5` / `claude-haiku-4-5-20251001` |
 | OpenAI | `openai` | `gpt-5.4-mini` / `gpt-5.4-mini` |
 
-Put the key in `LLM_API_KEY`. Check the setup with `python scripts/smoke_llm.py`: it makes one real
-call and one real extraction and prints the results. `LLM_REASONING_EFFORT` (OpenAI reasoning models
-only, for example `low`) trades some depth for speed.
+Put the key in `LLM_API_KEY`. `LLM_REASONING_EFFORT` (OpenAI reasoning models only, for example
+`low`) trades some depth for speed. For a deeper live check of your key and models, run
+`python scripts/smoke_llm.py` from source: it makes one real call and one real extraction and prints
+the results. It is not in the Docker image and needs the Python setup under
+[Development](#development).
 
 **Without a key the app still starts.** SOP gates run in plain code, so verification from dates,
 phone numbers, emails and ID digits works, and answers come from the claim facts through fixed
 templates. Understanding free-form language (names, intent, emotion, scope) needs the model.
+
+### Troubleshooting
+
+- **"Cannot connect to the Docker daemon":** start Docker Desktop and wait until it reports that it
+  is running, then repeat step 3.
+- **"port is already allocated" or "address already in use" on 8000:** something else is using the
+  port. If it is an earlier copy of this app, run `docker compose down`. Otherwise change the
+  left-hand number in `docker-compose.yml` (`"127.0.0.1:8000:8000"` becomes `"127.0.0.1:8080:8000"`)
+  and open port 8080 instead.
+- **Replies feel scripted, or the health page says `llm_configured: false`:** the app is running
+  without a model (see above). Re-check step 2, then step 4.
+- **Replies feel scripted even though `llm_configured` is `true`:** the key and the model names
+  probably belong to different providers, so the model calls fail and the agent falls back to its
+  fixed wording. Match them using the table above.
+- **Starting over:** `docker compose down`, then `docker compose up --build`. Nothing is stored on
+  disk, so there is nothing else to clean up.
 
 ### Try it
 
