@@ -191,7 +191,26 @@ class FixtureStore:
     def find_party_by_policy(self, policy_number: str) -> Policyholder | None:
         return self._by_policy.get(policy_key(policy_number))
 
+    def policy_prefixes(self) -> list[str]:
+        """Letter prefixes of the known policy numbers (e.g. ["POL"]), used to recognize a
+        policy number in free text without mistaking claim numbers for policies."""
+        prefixes: list[str] = []
+        for party in self._parties:
+            match = re.match(r"[A-Za-z]+", party.policy_number or "")
+            if match and match.group(0).upper() not in prefixes:
+                prefixes.append(match.group(0).upper())
+        return prefixes
+
+    def followup_topics(self) -> list[str]:
+        """Topic names from the follow-up guidance: the closed set the LLM may choose from."""
+        return [rule.topic for rule in self.guidelines.claim_followup_guidance]
+
     # ---- cases -------------------------------------------------------------------
+
+    def all_cases(self) -> list[Case]:
+        """Every case in the backend. Used only by the output guard, to recognize claim data in
+        a reply; SOP logic must go through the tool gateway."""
+        return list(self._cases)
 
     def cases_for_party(self, party_id: str) -> list[Case]:
         return [c for c in self._cases if c.party_id == party_id]

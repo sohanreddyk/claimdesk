@@ -119,6 +119,18 @@ def test_claim_schema_semantics(store):
     assert "finalized amount" in fields["net_pay"].description
 
 
+def test_policy_prefixes_and_followup_topics(store):
+    assert store.policy_prefixes() == ["POL"]
+    assert store.followup_topics() == [
+        "missing_required_material_alternatives",
+        "submission_timing",
+        "processing_time_after_submission",
+        "submission_method",
+        "file_format_requirements",
+        "receipt_confirmation",
+    ]
+
+
 # ---- resilience to swapped fixtures ----------------------------------------------
 
 
