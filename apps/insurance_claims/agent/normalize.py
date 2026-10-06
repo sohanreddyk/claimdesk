@@ -27,6 +27,11 @@ def _strip_marks(text: str) -> str:
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
+def fold(text: str) -> str:
+    """Casefold and strip diacritics, for comparing what a caller wrote against names."""
+    return _strip_marks(text).casefold()
+
+
 def name_tokens(value: str) -> list[str]:
     text = _strip_marks(value).casefold()
     if "," in text:  # "Chen, Margaret" -> "margaret chen"
