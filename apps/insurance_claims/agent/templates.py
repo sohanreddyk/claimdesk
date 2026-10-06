@@ -72,9 +72,18 @@ _HUMAN_OFFER = {
 }
 
 _CONSENT = {
-    "approved": "The policyholder's approval has been confirmed.",
-    "timed_out": "The policyholder's approval didn't arrive in time.",
-    "denied": "The policyholder didn't approve access.",
+    "approved": (
+        "Because you're calling on someone else's behalf, I needed the policyholder's approval "
+        "before sharing anything, and it has been confirmed."
+    ),
+    "timed_out": (
+        "Because you're calling on someone else's behalf, I need the policyholder's approval "
+        "before I can share anything, and it didn't arrive in time."
+    ),
+    "denied": (
+        "Because you're calling on someone else's behalf, I need the policyholder's approval "
+        "before I can share anything, and they didn't approve access."
+    ),
 }
 
 
@@ -107,8 +116,9 @@ def template(a: Act) -> str:
         return "I wasn't able to match some of the details I have so far."
     if kind == ActKind.REQUEST_REP_IDENTITY:
         return (
-            "Since you're calling on someone else's behalf, may I have your own full name and "
-            "your relationship to the policyholder?"
+            "Since you're calling on someone else's behalf, I'll need the policyholder's approval "
+            "before I can share anything. May I have your own full name and your relationship "
+            "to the policyholder?"
         )
     if kind == ActKind.CONSENT_RESULT:
         return _CONSENT.get(d.get("status"), "The approval check has finished.")

@@ -1,6 +1,7 @@
 """Wording rules that came out of running the agent against a real model."""
 
-from agent.acts import ActKind, act
+import pytest
+from agent.acts import ActKind, act, describe
 from agent.llm.process_prompts import PROCESS_SYSTEM
 from agent.llm.prompts import EXTRACTION_SYSTEM
 from agent.templates import template
@@ -36,6 +37,38 @@ def test_the_offer_after_a_privacy_notice_is_short_and_does_not_repeat_it():
 def test_the_full_offer_still_explains_the_restriction_when_it_comes_first():
     text = template(act(ActKind.OFFER_EMAIL_SUMMARY, masked="m***@email.com", restricted=True))
     assert text.count("For privacy") == 1 and "address on file" in text
+
+
+# A representative is told why the policyholder's approval is needed, whatever the outcome.
+
+
+@pytest.mark.parametrize("status", ["approved", "timed_out", "denied"])
+def test_every_consent_result_explains_why_the_approval_is_needed(status):
+    text = template(act(ActKind.CONSENT_RESULT, status=status))
+    assert "calling on someone else's behalf" in text
+    assert "policyholder's approval" in text
+
+
+@pytest.mark.parametrize("status", ["approved", "timed_out", "denied"])
+def test_the_instruction_to_the_model_carries_the_same_reason(status):
+    instruction = describe(act(ActKind.CONSENT_RESULT, status=status))
+    assert "acting for someone else" in instruction
+    assert "policyholder's approval" in instruction
+
+
+def test_each_outcome_still_says_what_happened():
+    outcomes = ("approved", "timed_out", "denied")
+    said = {s: template(act(ActKind.CONSENT_RESULT, status=s)) for s in outcomes}
+    assert "has been confirmed" in said["approved"]
+    assert "didn't arrive in time" in said["timed_out"]
+    assert "didn't approve access" in said["denied"]
+
+
+def test_asking_a_representative_who_they_are_mentions_the_approval_up_front():
+    text = template(act(ActKind.REQUEST_REP_IDENTITY))
+    assert "policyholder's approval" in text
+    assert "relationship to the policyholder" in text
+    assert "approval" in describe(act(ActKind.REQUEST_REP_IDENTITY))
 
 
 # These pin the instructions that stop the real model from over-answering. The behavior

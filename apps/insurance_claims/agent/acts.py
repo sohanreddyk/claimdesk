@@ -161,9 +161,18 @@ _HUMAN_REASONS = {
 }
 
 _CONSENT = {
-    "approved": "Say the policyholder's approval has been confirmed.",
-    "timed_out": "Say the policyholder's approval did not arrive in time.",
-    "denied": "Say the policyholder did not approve access.",
+    "approved": (
+        "Say that because the caller is acting for someone else, the policyholder's approval "
+        "was needed before sharing anything, and it has been confirmed."
+    ),
+    "timed_out": (
+        "Say that because the caller is acting for someone else, the policyholder's approval "
+        "is needed before anything can be shared, and it did not arrive in time."
+    ),
+    "denied": (
+        "Say that because the caller is acting for someone else, the policyholder's approval "
+        "is needed before anything can be shared, and the policyholder did not approve access."
+    ),
 }
 
 
@@ -205,7 +214,8 @@ def describe(a: Act) -> str:
         )
     if kind == ActKind.REQUEST_REP_IDENTITY:
         return (
-            "The caller is acting for someone else. Ask for their own full name and their "
+            "The caller is acting for someone else. Briefly say the policyholder's approval is "
+            "needed before anything can be shared, then ask for their own full name and their "
             "relationship to the policyholder. This is the single question in the reply."
         )
     if kind == ActKind.CONSENT_RESULT:
