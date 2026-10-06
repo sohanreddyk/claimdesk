@@ -45,6 +45,7 @@ def test_the_full_offer_still_explains_the_restriction_when_it_comes_first():
 def test_claim_answers_must_not_greet_or_reintroduce_the_claim():
     assert 'Do not open with a greeting such as "Hi" or "Hello"' in PROCESS_SYSTEM
     assert "Do not restate the claim number" in PROCESS_SYSTEM
+    assert "Do not offer a human representative in any other case" in PROCESS_SYSTEM
 
 
 def test_intents_are_limited_to_what_the_message_actually_asks():
